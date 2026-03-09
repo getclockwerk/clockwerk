@@ -5,6 +5,7 @@ const args = process.argv.slice(3);
 
 const COMMANDS: Record<string, () => Promise<void>> = {
   login: () => import("./commands/login").then((m) => m.default(args)),
+  logout: () => import("./commands/logout").then((m) => m.default()),
   up: () => import("./commands/up").then((m) => m.default(args)),
   down: () => import("./commands/down").then((m) => m.default(args)),
   status: () => import("./commands/status").then((m) => m.default(args)),
@@ -25,6 +26,7 @@ Usage: clockwerk <command> [options]
 
 Commands:
   login             Authenticate with getclockwerk.com
+  logout            Log out and remove saved credentials
   up                Start the daemon
   down              Stop the daemon
   status            Show tracking status
