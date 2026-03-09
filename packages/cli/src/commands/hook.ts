@@ -21,9 +21,15 @@ import { spawn } from "node:child_process";
  * Usage: clockwerk hook <source> [json-payload]
  */
 export default async function hook(args: string[]): Promise<void> {
+  if (args[0] === "install") {
+    const { installHooks } = await import("./hook-install");
+    return installHooks(args[1]);
+  }
+
   const source = args[0] as Source;
   if (!source) {
     console.error("Usage: clockwerk hook <source> [json-payload]");
+    console.error("       clockwerk hook install");
     process.exit(1);
   }
 
