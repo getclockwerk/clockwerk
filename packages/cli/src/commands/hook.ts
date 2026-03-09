@@ -79,7 +79,7 @@ export default async function hook(args: string[]): Promise<void> {
 
   // Auto-start daemon if not running
   if (!isDaemonRunning()) {
-    spawn("bun", ["run", import.meta.dir + "/../index.ts", "up", "--foreground"], {
+    spawn(process.execPath, ["up", "--foreground"], {
       detached: true,
       stdio: "ignore",
     }).unref();

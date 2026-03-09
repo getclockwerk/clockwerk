@@ -9,7 +9,7 @@ import { spawn } from "node:child_process";
 export async function startMcpServer(): Promise<void> {
   // Auto-start daemon if not running
   if (!isDaemonRunning()) {
-    spawn("bun", ["run", import.meta.dir + "/../index.ts", "up", "--foreground"], {
+    spawn(process.execPath, ["up", "--foreground"], {
       detached: true,
       stdio: "ignore",
     }).unref();

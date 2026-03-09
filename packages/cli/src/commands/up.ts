@@ -14,15 +14,11 @@ export default async function up(_args: string[]): Promise<void> {
     return;
   }
 
-  // Spawn daemon in background
-  const child = spawn(
-    "bun",
-    ["run", import.meta.dir + "/../index.ts", "up", "--foreground"],
-    {
-      detached: true,
-      stdio: "ignore",
-    },
-  );
+  // Spawn daemon in background — re-exec the current binary
+  const child = spawn(process.execPath, ["up", "--foreground"], {
+    detached: true,
+    stdio: "ignore",
+  });
   child.unref();
 
   // Wait a moment for the daemon to start
