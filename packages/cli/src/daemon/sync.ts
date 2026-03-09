@@ -106,11 +106,15 @@ async function syncProject(db: Database, projectToken: string): Promise<void> {
 
 export function startSync(db: Database): void {
   syncTimer = setInterval(async () => {
-    // Get all project tokens with events
+    // Only sync registered projects, not stale tokens left in the events table
+    const registry = getProjectRegistry();
+    const registeredTokens = new Set(registry.map((r) => r.project_token));
+
     const tokens = db
       .query<{ project_token: string }, []>("SELECT DISTINCT project_token FROM events")
       .all()
-      .map((r) => r.project_token);
+      .map((r) => r.project_token)
+      .filter((t) => registeredTokens.has(t));
 
     for (const token of tokens) {
       await syncProject(db, token);
