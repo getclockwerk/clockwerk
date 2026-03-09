@@ -1,4 +1,12 @@
-import { unlinkSync, existsSync, writeFileSync, readFileSync } from "node:fs";
+import {
+  unlinkSync,
+  existsSync,
+  readFileSync,
+  openSync,
+  writeSync,
+  closeSync,
+  constants,
+} from "node:fs";
 import {
   getDb,
   insertEvents,
@@ -152,25 +160,37 @@ export function startDaemon(): void {
   if (existsSync(pidPath)) {
     try {
       const existingPid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
-      process.kill(existingPid, "SIGTERM");
-      // Give it a moment to shut down
-      const start = Date.now();
-      while (Date.now() - start < 1000) {
-        try {
-          process.kill(existingPid, 0);
-          Bun.sleepSync(50);
-        } catch {
-          break; // Process is gone
+      if (existingPid !== process.pid) {
+        process.kill(existingPid, "SIGTERM");
+        // Wait up to 3s for graceful shutdown (lets watchers/children clean up)
+        const start = Date.now();
+        while (Date.now() - start < 3000) {
+          try {
+            process.kill(existingPid, 0);
+            Bun.sleepSync(50);
+          } catch {
+            break; // Process is gone
+          }
         }
-      }
-      // Force kill if still alive
-      try {
-        process.kill(existingPid, "SIGKILL");
-      } catch {
-        // Already gone
+        // Force kill process group if still alive (catches orphaned children)
+        try {
+          process.kill(-existingPid, "SIGKILL");
+        } catch {
+          try {
+            process.kill(existingPid, "SIGKILL");
+          } catch {
+            /* already gone */
+          }
+        }
       }
     } catch {
       // Process doesn't exist, stale PID file
+    }
+    // Remove stale PID file so we can atomically claim it
+    try {
+      unlinkSync(pidPath);
+    } catch {
+      /* may already be removed */
     }
   }
 
@@ -179,8 +199,19 @@ export function startDaemon(): void {
     unlinkSync(socketPath);
   }
 
-  // Write PID file
-  writeFileSync(pidPath, process.pid.toString());
+  // Atomically claim the PID file (O_EXCL fails if another process created it first)
+  try {
+    const fd = openSync(
+      pidPath,
+      constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
+      0o644,
+    );
+    writeSync(fd, process.pid.toString());
+    closeSync(fd);
+  } catch {
+    console.error("[clockwerk] Another daemon is already starting. Exiting.");
+    process.exit(1);
+  }
 
   // Initialize database
   const db = getDb();

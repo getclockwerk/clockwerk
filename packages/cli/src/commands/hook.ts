@@ -7,7 +7,6 @@ import {
 } from "@clockwerk/core";
 import { sendEvent } from "../daemon/client";
 import { isDaemonRunning } from "../daemon/server";
-import { spawn } from "node:child_process";
 
 /**
  * Hook command — called by AI tool integrations.
@@ -77,15 +76,9 @@ export default async function hook(args: string[]): Promise<void> {
       break;
   }
 
-  // Auto-start daemon if not running
-  if (!isDaemonRunning()) {
-    spawn(process.execPath, ["up", "--foreground"], {
-      detached: true,
-      stdio: "ignore",
-    }).unref();
-    // Brief wait for daemon to start
-    await new Promise((r) => setTimeout(r, 300));
-  }
+  // Skip if daemon isn't running — events are only accepted when the user
+  // has explicitly started the daemon with `clockwerk up`.
+  if (!isDaemonRunning()) return;
 
   // Fire and forget to daemon
   await sendEvent({ type: "event", data: event });
