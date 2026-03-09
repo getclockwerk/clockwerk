@@ -10,6 +10,11 @@ export default async function logout(): Promise<void> {
   }
 
   const configPath = resolve(process.env.HOME ?? "~", ".clockwerk", "config.json");
-  unlinkSync(configPath);
+  try {
+    unlinkSync(configPath);
+  } catch {
+    console.error("Failed to remove config file.");
+    process.exit(1);
+  }
   console.log(`Logged out (was ${config.email}).`);
 }

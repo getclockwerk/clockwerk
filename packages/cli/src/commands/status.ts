@@ -1,13 +1,7 @@
 import { isDaemonRunning } from "../daemon/server";
 import { queryDaemon } from "../daemon/client";
 import { findProjectConfig } from "@clockwerk/core";
-
-function formatDuration(seconds: number): string {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
-}
+import { formatDuration } from "../format";
 
 export default async function status(_args: string[]): Promise<void> {
   const daemonUp = isDaemonRunning();
@@ -60,6 +54,7 @@ export default async function status(_args: string[]): Promise<void> {
     }
   } catch (err) {
     console.error("Failed to query daemon:", err);
+    process.exit(1);
   }
 }
 

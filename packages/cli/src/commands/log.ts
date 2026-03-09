@@ -1,6 +1,7 @@
 import { findProjectConfig, type ClockwerkEvent } from "@clockwerk/core";
 import { sendEvent } from "../daemon/client";
 import { isDaemonRunning } from "../daemon/server";
+import { formatDuration } from "../format";
 
 /**
  * Manual time logging.
@@ -62,9 +63,7 @@ export default async function log(args: string[]): Promise<void> {
     await sendEvent({ type: "event", data: event });
   }
 
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const dur = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  const dur = formatDuration(seconds);
   console.log(`[clockwerk] Logged ${dur}${description ? `: ${description}` : ""}`);
 }
 
