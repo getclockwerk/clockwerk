@@ -148,6 +148,32 @@ export function startDaemon(): void {
     mkdirSync(clockwerkDir, { recursive: true });
   }
 
+  // Kill any existing daemon to prevent orphans
+  if (existsSync(pidPath)) {
+    try {
+      const existingPid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
+      process.kill(existingPid, "SIGTERM");
+      // Give it a moment to shut down
+      const start = Date.now();
+      while (Date.now() - start < 1000) {
+        try {
+          process.kill(existingPid, 0);
+          Bun.sleepSync(50);
+        } catch {
+          break; // Process is gone
+        }
+      }
+      // Force kill if still alive
+      try {
+        process.kill(existingPid, "SIGKILL");
+      } catch {
+        // Already gone
+      }
+    } catch {
+      // Process doesn't exist, stale PID file
+    }
+  }
+
   // Clean up stale socket
   if (existsSync(socketPath)) {
     unlinkSync(socketPath);

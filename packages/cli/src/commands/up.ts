@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { getDaemonSocketPath } from "@clockwerk/core";
 import { isDaemonRunning, startDaemon } from "../daemon/server";
 
 export default async function up(_args: string[]): Promise<void> {
@@ -21,10 +23,18 @@ export default async function up(_args: string[]): Promise<void> {
   });
   child.unref();
 
-  // Wait a moment for the daemon to start
-  await new Promise((r) => setTimeout(r, 200));
+  // Poll for socket to confirm daemon is ready (up to 3s)
+  const socketPath = getDaemonSocketPath();
+  let started = false;
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    if (existsSync(socketPath) && isDaemonRunning()) {
+      started = true;
+      break;
+    }
+  }
 
-  if (isDaemonRunning()) {
+  if (started) {
     console.log("[clockwerk] Daemon started in background.");
   } else {
     console.error("[clockwerk] Failed to start daemon.");

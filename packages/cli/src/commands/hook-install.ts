@@ -42,10 +42,15 @@ const TARGETS: HookTarget[] = [
       const hooks = (config.hooks ?? {}) as Record<string, unknown[]>;
       const postToolUse = (hooks.PostToolUse ?? []) as Record<string, unknown>[];
 
-      // Check if already installed
-      const alreadyInstalled = postToolUse.some(
-        (h) => typeof h.command === "string" && h.command.includes("clockwerk hook"),
-      );
+      // Check if already installed (support both old flat format and new nested format)
+      const alreadyInstalled = postToolUse.some((h) => {
+        if (typeof h.command === "string" && h.command.includes("clockwerk hook"))
+          return true;
+        const nested = h.hooks as Record<string, unknown>[] | undefined;
+        return nested?.some(
+          (n) => typeof n.command === "string" && n.command.includes("clockwerk hook"),
+        );
+      });
       if (alreadyInstalled) {
         console.log(`  [=] Claude Code — already installed`);
         return;
@@ -53,7 +58,13 @@ const TARGETS: HookTarget[] = [
 
       postToolUse.push({
         matcher: ".*",
-        command: `${bin} hook claude-code`,
+        hooks: [
+          {
+            type: "command",
+            command: `${bin} hook claude-code`,
+            timeout: 5,
+          },
+        ],
       });
 
       hooks.PostToolUse = postToolUse;
