@@ -63,8 +63,7 @@ export function computeSessions(
   // Group events by partition key
   const partitions = new Map<string, EventRow[]>();
   for (const event of events) {
-    const key =
-      event.harness_session_id ?? `${event.project_token}:${event.branch ?? "default"}`;
+    const key = `${event.project_token}:${event.branch ?? "default"}`;
     const partition = partitions.get(key);
     if (partition) {
       partition.push(event);
