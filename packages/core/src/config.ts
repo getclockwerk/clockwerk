@@ -31,9 +31,11 @@ export function getUserConfig(): UserConfig | null {
 
 export function saveUserConfig(config: UserConfig): void {
   if (!existsSync(CLOCKWERK_DIR)) {
-    mkdirSync(CLOCKWERK_DIR, { recursive: true });
+    mkdirSync(CLOCKWERK_DIR, { recursive: true, mode: 0o700 });
   }
-  writeFileSync(USER_CONFIG_PATH, JSON.stringify(config, null, 2) + "\n");
+  writeFileSync(USER_CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", {
+    mode: 0o600,
+  });
 }
 
 // --- Project config (from `clockwerk init`) ---
@@ -99,7 +101,7 @@ export function getProjectRegistry(): ProjectRegistryEntry[] {
 
 export function registerProject(entry: ProjectRegistryEntry): void {
   if (!existsSync(CLOCKWERK_DIR)) {
-    mkdirSync(CLOCKWERK_DIR, { recursive: true });
+    mkdirSync(CLOCKWERK_DIR, { recursive: true, mode: 0o700 });
   }
   const registry = getProjectRegistry().filter((e) => e.directory !== entry.directory);
   registry.push(entry);

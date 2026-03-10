@@ -5,6 +5,7 @@ import {
   openSync,
   writeSync,
   closeSync,
+  chmodSync,
   constants,
 } from "node:fs";
 import {
@@ -23,7 +24,7 @@ import {
   type DaemonResponse,
 } from "@clockwerk/core";
 import { mkdirSync } from "node:fs";
-import { startSync, stopSync } from "./sync";
+import { startSync, stopSync, resetWatermarks } from "./sync";
 import { startPluginsFromRegistry, type PluginManager } from "./plugins";
 
 const FLUSH_INTERVAL_MS = 1_000;
@@ -113,6 +114,11 @@ function handleQuery(method: string, params?: Record<string, unknown>): unknown 
       return { sessions, total_seconds: totalSeconds };
     }
 
+    case "reset-watermarks": {
+      resetWatermarks(db);
+      return { ok: true };
+    }
+
     default:
       return { error: `Unknown method: ${method}` };
   }
@@ -153,7 +159,7 @@ export function startDaemon(): void {
   const clockwerkDir = getClockwerkDir();
 
   if (!existsSync(clockwerkDir)) {
-    mkdirSync(clockwerkDir, { recursive: true });
+    mkdirSync(clockwerkDir, { recursive: true, mode: 0o700 });
   }
 
   // Kill any existing daemon to prevent orphans
@@ -204,7 +210,7 @@ export function startDaemon(): void {
     const fd = openSync(
       pidPath,
       constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
-      0o644,
+      0o600,
     );
     writeSync(fd, process.pid.toString());
     closeSync(fd);
@@ -243,7 +249,7 @@ export function startDaemon(): void {
     },
   });
 
-  // Start Unix socket server
+  // Start Unix socket server (restrict to owner-only after creation)
   const server = Bun.listen({
     unix: socketPath,
     socket: {
@@ -267,6 +273,9 @@ export function startDaemon(): void {
       },
     },
   });
+
+  // Restrict socket to owner-only access
+  chmodSync(socketPath, 0o600);
 
   running = true;
   console.log(`[clockwerk] Daemon started (pid: ${process.pid})`);

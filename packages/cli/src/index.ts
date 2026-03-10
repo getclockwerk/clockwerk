@@ -14,6 +14,7 @@ const COMMANDS: Record<string, () => Promise<void>> = {
   log: () => import("./commands/log").then((m) => m.default(args)),
   mcp: () => import("./commands/mcp").then((m) => m.default(args)),
   plugin: () => import("./commands/plugin").then((m) => m.default(args)),
+  "sync-reset": () => import("./commands/sync-reset").then((m) => m.default()),
   update: () => import("./commands/update").then((m) => m.default()),
   help: () => printHelp(),
 };

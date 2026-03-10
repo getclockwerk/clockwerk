@@ -94,10 +94,12 @@ async function syncProject(db: Database, projectToken: string): Promise<void> {
     });
 
     if (res.ok) {
-      await res.json();
-      // Update watermark to latest event timestamp
-      const latestTs = Math.max(...sessions.map((s) => s.end_ts));
-      setSyncWatermark(db, projectToken, latestTs);
+      const result = await res.json();
+      // Only advance watermark if the server actually accepted sessions
+      if (result.accepted > 0) {
+        const latestTs = Math.max(...sessions.map((s) => s.end_ts));
+        setSyncWatermark(db, projectToken, latestTs);
+      }
     }
   } catch {
     // Network error — will retry next cycle
@@ -120,6 +122,10 @@ export function startSync(db: Database): void {
       await syncProject(db, token);
     }
   }, SYNC_INTERVAL_MS);
+}
+
+export function resetWatermarks(db: Database): void {
+  db.run("DELETE FROM sync_state");
 }
 
 export function stopSync(): void {
