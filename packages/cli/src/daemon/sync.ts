@@ -9,6 +9,62 @@ import {
 
 const SYNC_INTERVAL_MS = 30_000; // 30 seconds
 
+// Validation limits from syncRequestSchema
+const MAX_TOPICS = 50;
+const MAX_FILE_AREAS = 100;
+const MAX_COMMITS = 200;
+const MAX_FILES_CHANGED = 500;
+const MAX_TOOLS_USED = 100;
+
+/**
+ * Deduplicate topics by stripping absolute paths and removing entries
+ * whose words overlap significantly with an already-kept topic.
+ */
+function deduplicateTopics(topics: string[], limit: number): string[] {
+  // Normalize: strip absolute paths down to last component
+  const normalize = (t: string) =>
+    t
+      .replace(/\/[\w./-]+\//g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+
+  const kept: string[] = [];
+  const keptNorms: Set<string> = new Set();
+  const keptWordSets: Array<Set<string>> = [];
+
+  for (const topic of topics) {
+    const norm = normalize(topic);
+    if (!norm || keptNorms.has(norm)) continue;
+
+    // Check word overlap with existing kept topics
+    const words = new Set(norm.split(/\s+/).filter((w) => w.length > 2));
+    if (words.size === 0) continue;
+
+    let isDuplicate = false;
+    for (const existing of keptWordSets) {
+      let overlap = 0;
+      for (const w of words) {
+        if (existing.has(w)) overlap++;
+      }
+      // If >70% of this topic's words appear in an existing one, skip it
+      if (overlap / words.size > 0.7) {
+        isDuplicate = true;
+        break;
+      }
+    }
+
+    if (!isDuplicate) {
+      kept.push(topic);
+      keptNorms.add(norm);
+      keptWordSets.push(words);
+      if (kept.length >= limit) break;
+    }
+  }
+
+  return kept;
+}
+
 let syncTimer: ReturnType<typeof setInterval> | null = null;
 
 function getSyncWatermark(db: Database, projectToken: string): number {
@@ -79,14 +135,14 @@ async function syncProject(db: Database, projectToken: string): Promise<void> {
           source: s.source,
           branch: s.branch,
           issue_id: s.issue_id,
-          topics: s.topics.slice(0, 50),
-          file_areas: s.file_areas.slice(0, 100),
+          topics: deduplicateTopics(s.topics, MAX_TOPICS),
+          file_areas: s.file_areas.slice(0, MAX_FILE_AREAS),
           event_count: s.event_count,
           description: s.description,
-          commits: s.commits?.slice(0, 200),
+          commits: s.commits?.slice(0, MAX_COMMITS),
           event_types: s.event_types,
-          files_changed: s.files_changed?.slice(0, 500),
-          tools_used: s.tools_used?.slice(0, 100),
+          files_changed: s.files_changed?.slice(0, MAX_FILES_CHANGED),
+          tools_used: s.tools_used?.slice(0, MAX_TOOLS_USED),
           source_breakdown: s.source_breakdown,
         })),
         watermark,
