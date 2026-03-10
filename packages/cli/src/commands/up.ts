@@ -12,7 +12,7 @@ export default async function up(_args: string[]): Promise<void> {
   const foreground = _args.includes("--foreground") || _args.includes("-f");
 
   if (foreground) {
-    startDaemon();
+    startDaemon({ foreground: true });
     return;
   }
 

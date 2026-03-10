@@ -18,6 +18,10 @@ export function getDaemonPidPath(): string {
   return resolve(CLOCKWERK_DIR, "daemon.pid");
 }
 
+export function getDaemonLogPath(): string {
+  return resolve(CLOCKWERK_DIR, "daemon.log");
+}
+
 // --- User config (from `clockwerk login`) ---
 
 export function getUserConfig(): UserConfig | null {

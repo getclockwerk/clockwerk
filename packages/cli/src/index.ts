@@ -8,6 +8,7 @@ const COMMANDS: Record<string, () => Promise<void>> = {
   logout: () => import("./commands/logout").then((m) => m.default()),
   up: () => import("./commands/up").then((m) => m.default(args)),
   down: () => import("./commands/down").then((m) => m.default(args)),
+  logs: () => import("./commands/logs").then((m) => m.default(args)),
   status: () => import("./commands/status").then((m) => m.default(args)),
   init: () => import("./commands/init").then((m) => m.default(args)),
   hook: () => import("./commands/hook").then((m) => m.default(args)),
@@ -30,6 +31,7 @@ Commands:
   logout            Log out and remove saved credentials
   up                Start the daemon
   down              Stop the daemon
+  logs              Show daemon logs (-f to follow, -n <lines>, --level <level>)
   status            Show tracking status
   init <token>      Initialize project in current directory
   hook <source>     Log a hook event (used by AI tool integrations)

@@ -8,6 +8,9 @@ import {
   SESSION_GAP,
   type PrivacyConfig,
 } from "@clockwerk/core";
+import { createLogger } from "./logger";
+
+const log = createLogger("sync");
 
 const SYNC_INTERVAL_MS = 30_000; // 30 seconds
 
@@ -167,10 +170,15 @@ async function syncProject(db: Database, projectToken: string): Promise<void> {
       if (result.accepted > 0) {
         const latestTs = Math.max(...sessions.map((s) => s.end_ts));
         setSyncWatermark(db, projectToken, latestTs);
+        log.info(`Synced ${result.accepted} session(s) for ${projectToken}`);
       }
+    } else {
+      log.warn(`Sync failed for ${projectToken}: HTTP ${res.status}`);
     }
-  } catch {
-    // Network error — will retry next cycle
+  } catch (err) {
+    log.error(
+      `Sync error for ${projectToken}: ${err instanceof Error ? err.message : err}`,
+    );
   }
 }
 

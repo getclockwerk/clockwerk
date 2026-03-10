@@ -7,6 +7,7 @@ import type {
   PluginConfig,
   ProjectConfig,
 } from "@clockwerk/core";
+import { createLogger } from "./logger";
 
 interface PluginCallbacks {
   onEvent: (event: ClockwerkEvent) => void;
@@ -29,13 +30,16 @@ export class PluginProcess {
   private startedAt = 0;
   private _eventCount = 0;
   private _lastEventTime: number | null = null;
+  private log;
 
   constructor(
     private config: PluginConfig,
     private projectToken: string,
     private projectDir: string,
     private callbacks: PluginCallbacks,
-  ) {}
+  ) {
+    this.log = createLogger(`plugin:${config.name}`);
+  }
 
   get name(): string {
     return this.config.name;
@@ -95,10 +99,7 @@ export class PluginProcess {
         this.scheduleRestart();
       });
     } catch (err) {
-      console.error(
-        `[plugin:${this.config.name}] Failed to start:`,
-        err instanceof Error ? err.message : err,
-      );
+      this.log.error(`Failed to start: ${err instanceof Error ? err.message : err}`);
       this.proc = null;
       this.scheduleRestart();
     }
@@ -152,7 +153,7 @@ export class PluginProcess {
         for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed) continue;
-          console.error(`[plugin:${this.config.name}] ${trimmed}`);
+          this.log.warn(trimmed);
         }
       }
     } catch {
@@ -188,9 +189,7 @@ export class PluginProcess {
     const uptime = Date.now() - this.startedAt;
     if (uptime > 30_000) this.backoffMs = 1000; // reset on healthy run
 
-    console.error(
-      `[plugin:${this.config.name}] Exited. Restarting in ${this.backoffMs}ms...`,
-    );
+    this.log.warn(`Exited. Restarting in ${this.backoffMs}ms...`);
     this.restartTimer = setTimeout(() => {
       this.restartTimer = null;
       this.spawn();
@@ -281,7 +280,7 @@ export class PluginManager {
       );
       plugin.start();
       plugins.push(plugin);
-      console.log(`[plugin:${pluginConfig.name}] Started for ${entry.directory}`);
+      createLogger(`plugin:${pluginConfig.name}`).info(`Started for ${entry.directory}`);
     }
     return plugins;
   }
@@ -309,8 +308,10 @@ export class PluginManager {
     }
   }
 
+  private pluginsLog = createLogger("plugins");
+
   private reloadProject(entry: { project_token: string; directory: string }): void {
-    console.log(`[plugins] Config changed for ${entry.directory}, reloading plugins...`);
+    this.pluginsLog.info(`Config changed for ${entry.directory}, reloading plugins...`);
 
     // Stop existing plugins for this project
     const existing = this.plugins.filter((p) => p.directory === entry.directory);
@@ -322,7 +323,7 @@ export class PluginManager {
     this.plugins.push(...newPlugins);
 
     if (newPlugins.length === 0) {
-      console.log(`[plugins] No plugins configured for ${entry.directory}`);
+      this.pluginsLog.info(`No plugins configured for ${entry.directory}`);
     }
   }
 }

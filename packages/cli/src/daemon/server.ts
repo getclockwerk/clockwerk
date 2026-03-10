@@ -26,6 +26,10 @@ import {
 import { mkdirSync } from "node:fs";
 import { startSync, stopSync, resetWatermarks } from "./sync";
 import { startPluginsFromRegistry, type PluginManager } from "./plugins";
+import { initLogger, closeLogger, createLogger } from "./logger";
+
+const log = createLogger("clockwerk");
+const socketLog = createLogger("daemon");
 
 const FLUSH_INTERVAL_MS = 1_000;
 const FLUSH_BATCH_SIZE = 100;
@@ -44,7 +48,7 @@ function flushEvents(): void {
     const db = getDb();
     insertEvents(db, batch);
   } catch (err) {
-    console.error("[daemon] Failed to flush events:", err);
+    socketLog.error(`Failed to flush events: ${err}`);
     // Put events back in the buffer for retry
     eventBuffer = [...batch, ...eventBuffer];
   }
@@ -153,7 +157,8 @@ function handleMessage(raw: string): string | null {
   return null;
 }
 
-export function startDaemon(): void {
+export function startDaemon(opts?: { foreground?: boolean }): void {
+  initLogger({ foreground: opts?.foreground ?? false });
   const socketPath = getDaemonSocketPath();
   const pidPath = getDaemonPidPath();
   const clockwerkDir = getClockwerkDir();
@@ -215,7 +220,7 @@ export function startDaemon(): void {
     writeSync(fd, process.pid.toString());
     closeSync(fd);
   } catch {
-    console.error("[clockwerk] Another daemon is already starting. Exiting.");
+    log.error("Another daemon is already starting. Exiting.");
     process.exit(1);
   }
 
@@ -236,6 +241,9 @@ export function startDaemon(): void {
       if (eventBuffer.length >= FLUSH_BATCH_SIZE) {
         flushEvents();
       }
+    },
+    onLog(level, prefix, message) {
+      createLogger(prefix)[level](message);
     },
   });
 
@@ -269,7 +277,7 @@ export function startDaemon(): void {
         // Connection closed
       },
       error(_socket, err) {
-        console.error("[daemon] Socket error:", err);
+        socketLog.error(`Socket error: ${err}`);
       },
     },
   });
@@ -278,14 +286,14 @@ export function startDaemon(): void {
   chmodSync(socketPath, 0o600);
 
   running = true;
-  console.log(`[clockwerk] Daemon started (pid: ${process.pid})`);
-  console.log(`[clockwerk] Listening on ${socketPath}`);
+  log.info(`Daemon started (pid: ${process.pid})`);
+  log.info(`Listening on ${socketPath}`);
 
   // Graceful shutdown
   const shutdown = () => {
     if (!running) return;
     running = false;
-    console.log("\n[clockwerk] Shutting down...");
+    log.info("Shutting down...");
 
     clearInterval(flushTimer);
     for (const w of watchers) w.stop();
@@ -298,7 +306,8 @@ export function startDaemon(): void {
     if (existsSync(socketPath)) unlinkSync(socketPath);
     if (existsSync(pidPath)) unlinkSync(pidPath);
 
-    console.log("[clockwerk] Daemon stopped.");
+    log.info("Daemon stopped.");
+    closeLogger();
     process.exit(0);
   };
 

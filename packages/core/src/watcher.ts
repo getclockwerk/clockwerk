@@ -49,8 +49,9 @@ const BUILTIN_EXCLUDE_EXTENSIONS = [
   ".sqlite-shm",
 ];
 
-interface WatcherCallbacks {
+export interface WatcherCallbacks {
   onHeartbeat: (event: ClockwerkEvent) => void;
+  onLog?: (level: "info" | "warn" | "error", prefix: string, message: string) => void;
 }
 
 export class FileWatcher {
@@ -72,6 +73,12 @@ export class FileWatcher {
     this.interval = watchConfig.interval || DEFAULT_INTERVAL;
     this.extraExclude = watchConfig.exclude || [];
     this.loadGitignore();
+  }
+
+  private log(level: "info" | "warn" | "error", message: string): void {
+    if (this.callbacks.onLog) {
+      this.callbacks.onLog(level, "watcher", message);
+    }
   }
 
   start(): void {
@@ -113,9 +120,9 @@ export class FileWatcher {
         },
       );
     } catch (err) {
-      console.error(
-        `[watcher] Failed to watch ${this.projectDir}:`,
-        err instanceof Error ? err.message : err,
+      this.log(
+        "error",
+        `Failed to watch ${this.projectDir}: ${err instanceof Error ? err.message : err}`,
       );
     }
   }
@@ -152,9 +159,9 @@ export class FileWatcher {
 
       this.readInotifyOutput();
     } catch (err) {
-      console.error(
-        `[watcher] Failed to start inotifywait for ${this.projectDir}:`,
-        err instanceof Error ? err.message : err,
+      this.log(
+        "error",
+        `Failed to start inotifywait for ${this.projectDir}: ${err instanceof Error ? err.message : err}`,
       );
     }
   }
@@ -373,9 +380,13 @@ export function createWatchersFromRegistry(
     watcher.start();
     watchers.push(watcher);
 
-    console.log(
-      `[watcher] Watching ${entry.directory} (every ${watchConfig.interval || DEFAULT_INTERVAL}s)`,
-    );
+    if (callbacks.onLog) {
+      callbacks.onLog(
+        "info",
+        "watcher",
+        `Watching ${entry.directory} (every ${watchConfig.interval || DEFAULT_INTERVAL}s)`,
+      );
+    }
   }
 
   return watchers;
