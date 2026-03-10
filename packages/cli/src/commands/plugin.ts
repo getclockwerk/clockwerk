@@ -3,6 +3,7 @@ import {
   findProjectConfig,
   findProjectConfigPath,
   saveProjectConfig,
+  isValidSource,
   type PluginConfig,
   type EventType,
 } from "@clockwerk/core";
@@ -132,6 +133,13 @@ async function add(args: string[]): Promise<void> {
   }
 
   source = source ?? `plugin:${name}`;
+
+  if (!isValidSource(source)) {
+    console.error(
+      `Error: Invalid source "${source}". Must be 2-64 chars, lowercase alphanumeric with hyphens/colons.`,
+    );
+    process.exit(1);
+  }
 
   if (interval !== undefined && (isNaN(interval) || interval < 0)) {
     console.error("Error: --interval must be a non-negative number.");

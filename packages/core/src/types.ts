@@ -18,6 +18,13 @@ export type Source =
   | "manual"
   | "file-watch";
 
+/** Slug pattern for source identifiers: lowercase alphanumeric, hyphens, colons. 2-64 chars. */
+const SOURCE_SLUG_RE = /^[a-z0-9]([a-z0-9:-]*[a-z0-9])?$/;
+
+export function isValidSource(source: string): boolean {
+  return source.length >= 2 && source.length <= 64 && SOURCE_SLUG_RE.test(source);
+}
+
 export interface ClockwerkEvent {
   id: string;
   timestamp: number;
