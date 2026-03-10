@@ -27,13 +27,50 @@ export default async function init(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // TODO: Validate token against cloud API when available
-  // For now, just save the config locally
+  const userConfig = getUserConfig();
+  const apiUrl = userConfig?.api_url ?? "https://getclockwerk.com";
+
+  // Validate token against cloud API
+  if (userConfig?.token) {
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/v1/projects/validate?token=${encodeURIComponent(token)}`,
+        { headers: { Authorization: `Bearer ${userConfig.token}` } },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const name = data.project?.name ?? "Unknown";
+        const org = data.project?.org_name;
+        console.log(`[clockwerk] Verified project: ${name}${org ? ` (${org})` : ""}`);
+      } else if (res.status === 404) {
+        console.error(`[clockwerk] Error: invalid project token "${token}"`);
+        console.error(`Check the token in your dashboard and try again.`);
+        process.exit(1);
+      } else if (res.status === 401) {
+        console.error(`[clockwerk] Auth expired. Run 'clockwerk login' first.`);
+        process.exit(1);
+      } else {
+        // Non-critical — proceed anyway
+        console.warn(
+          `[clockwerk] Could not validate token (HTTP ${res.status}), proceeding anyway`,
+        );
+      }
+    } catch {
+      // Network error — proceed without validation
+      console.warn(
+        `[clockwerk] Could not reach API to validate token, proceeding anyway`,
+      );
+    }
+  } else {
+    console.warn(
+      `[clockwerk] Not logged in — skipping token validation. Run 'clockwerk login' to verify.`,
+    );
+  }
 
   const config: ProjectConfig = {
     version: 1,
     project_token: token,
-    api_url: getUserConfig()?.api_url ?? "https://getclockwerk.com",
+    api_url: apiUrl,
     privacy: {
       sync_paths: true,
       sync_branches: true,
