@@ -4,7 +4,9 @@ import {
   computeSessions,
   getCommitsInRange,
   getProjectRegistry,
+  findProjectConfig,
   SESSION_GAP,
+  type PrivacyConfig,
 } from "@clockwerk/core";
 
 const SYNC_INTERVAL_MS = 30_000; // 30 seconds
@@ -108,9 +110,17 @@ async function syncProject(db: Database, projectToken: string): Promise<void> {
 
   if (sessions.length === 0) return;
 
-  // Enrich sessions with git commits
+  // Enrich sessions with git commits and read privacy settings
   const registry = getProjectRegistry();
   const projectDir = registry.find((r) => r.project_token === projectToken)?.directory;
+  const privacy: PrivacyConfig = projectDir
+    ? (findProjectConfig(projectDir)?.privacy ?? {
+        sync_paths: true,
+        sync_branches: true,
+        sync_descriptions: true,
+      })
+    : { sync_paths: true, sync_branches: true, sync_descriptions: true };
+
   if (projectDir) {
     for (const s of sessions) {
       const commits = getCommitsInRange(projectDir, s.start_ts, s.end_ts);
@@ -133,15 +143,17 @@ async function syncProject(db: Database, projectToken: string): Promise<void> {
           end_ts: s.end_ts,
           duration_seconds: s.duration_seconds,
           source: s.source,
-          branch: s.branch,
+          branch: privacy.sync_branches ? s.branch : undefined,
           issue_id: s.issue_id,
           topics: deduplicateTopics(s.topics, MAX_TOPICS),
-          file_areas: s.file_areas.slice(0, MAX_FILE_AREAS),
+          file_areas: privacy.sync_paths ? s.file_areas.slice(0, MAX_FILE_AREAS) : [],
           event_count: s.event_count,
-          description: s.description,
+          description: privacy.sync_descriptions ? s.description : undefined,
           commits: s.commits?.slice(0, MAX_COMMITS),
           event_types: s.event_types,
-          files_changed: s.files_changed?.slice(0, MAX_FILES_CHANGED),
+          files_changed: privacy.sync_paths
+            ? s.files_changed?.slice(0, MAX_FILES_CHANGED)
+            : undefined,
           tools_used: s.tools_used?.slice(0, MAX_TOOLS_USED),
           source_breakdown: s.source_breakdown,
         })),
