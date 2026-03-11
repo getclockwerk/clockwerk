@@ -22,10 +22,8 @@ const MAX_POLL_ATTEMPTS = 150; // 5 minutes at 2s intervals
  * 3. Poll until approved, then save the token
  * 4. If in a local-only project, offer to link it
  */
-export default async function login(args: string[]): Promise<void> {
-  const apiUrl = args.includes("--api")
-    ? args[args.indexOf("--api") + 1]
-    : DEFAULT_API_URL;
+export default async function login(_args: string[]): Promise<void> {
+  const apiUrl = DEFAULT_API_URL;
 
   const existing = getUserConfig();
   if (existing) {
