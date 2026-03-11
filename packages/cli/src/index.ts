@@ -11,6 +11,7 @@ const COMMANDS: Record<string, () => Promise<void>> = {
   logs: () => import("./commands/logs").then((m) => m.default(args)),
   status: () => import("./commands/status").then((m) => m.default(args)),
   init: () => import("./commands/init").then((m) => m.default(args)),
+  link: () => import("./commands/link").then((m) => m.default()),
   hook: () => import("./commands/hook").then((m) => m.default(args)),
   log: () => import("./commands/log").then((m) => m.default(args)),
   mcp: () => import("./commands/mcp").then((m) => m.default(args)),
@@ -34,7 +35,8 @@ Commands:
   down              Stop the daemon
   logs              Show daemon logs (-f to follow, -n <lines>, --level <level>)
   status            Show tracking status
-  init <token>      Initialize project in current directory
+  init [token]      Initialize project in current directory
+  link              Link local project to cloud dashboard
   hook <source>     Log a hook event (used by AI tool integrations)
   hook install      Auto-detect and install hooks for AI tools
   hook install <id> Install hook for a specific tool (claude-code, codex, aider)

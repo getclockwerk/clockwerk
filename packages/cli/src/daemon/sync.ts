@@ -5,6 +5,7 @@ import {
   getCommitsInRange,
   getProjectRegistry,
   findProjectConfig,
+  isLocalToken,
   SESSION_GAP,
   type PrivacyConfig,
 } from "@clockwerk/core";
@@ -192,7 +193,8 @@ export function startSync(db: Database): void {
       .query<{ project_token: string }, []>("SELECT DISTINCT project_token FROM events")
       .all()
       .map((r) => r.project_token)
-      .filter((t) => registeredTokens.has(t));
+      .filter((t) => registeredTokens.has(t))
+      .filter((t) => !isLocalToken(t));
 
     for (const token of tokens) {
       await syncProject(db, token);

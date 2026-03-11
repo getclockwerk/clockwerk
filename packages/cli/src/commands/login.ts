@@ -1,5 +1,13 @@
-import { saveUserConfig, getUserConfig } from "@clockwerk/core";
+import {
+  saveUserConfig,
+  getUserConfig,
+  findProjectConfig,
+  findProjectConfigPath,
+  isLocalToken,
+} from "@clockwerk/core";
 import { spawn } from "node:child_process";
+import { confirm, close } from "../prompt";
+import { runLinkFlow } from "./link";
 
 const DEFAULT_API_URL = "https://getclockwerk.com";
 const POLL_INTERVAL_MS = 2_000;
@@ -12,6 +20,7 @@ const MAX_POLL_ATTEMPTS = 150; // 5 minutes at 2s intervals
  * 1. Request a device code from the server
  * 2. Open browser to approval page
  * 3. Poll until approved, then save the token
+ * 4. If in a local-only project, offer to link it
  */
 export default async function login(args: string[]): Promise<void> {
   const apiUrl = args.includes("--api")
@@ -99,7 +108,11 @@ export default async function login(args: string[]): Promise<void> {
 
           console.log(` ✓\n`);
           console.log(`Logged in as ${email}`);
-          console.log(`Token saved to ~/.clockwerk/config.json`);
+
+          // Check if current directory has a local-only project
+          await maybeOfferLink(apiUrl, data.token);
+
+          close();
           return;
         }
       }
@@ -111,6 +124,27 @@ export default async function login(args: string[]): Promise<void> {
 
   console.log("\nTimed out waiting for approval. Run 'clockwerk login' again.");
   process.exit(1);
+}
+
+async function maybeOfferLink(apiUrl: string, authToken: string): Promise<void> {
+  const cwd = process.cwd();
+  const configPath = findProjectConfigPath(cwd);
+  const config = findProjectConfig(cwd);
+
+  if (!config || !configPath || !isLocalToken(config.project_token)) {
+    return;
+  }
+
+  const name = config.project_name ?? "this project";
+  console.log(`\n  "${name}" is tracking locally.`);
+  const shouldLink = await confirm("  Want to sync it to the cloud?");
+
+  if (!shouldLink) {
+    console.log(`\n  No problem! Run 'clockwerk link' anytime to connect later.\n`);
+    return;
+  }
+
+  await runLinkFlow(configPath, config, apiUrl, authToken);
 }
 
 function tryOpenBrowser(url: string): void {

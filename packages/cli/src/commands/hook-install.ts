@@ -3,7 +3,7 @@ import { resolve, dirname } from "node:path";
 
 const HOME = process.env.HOME ?? "~";
 
-interface HookTarget {
+export interface HookTarget {
   id: string;
   name: string;
   configPath: string;
@@ -52,7 +52,7 @@ const TARGETS: HookTarget[] = [
         );
       });
       if (alreadyInstalled) {
-        console.log(`  [=] Claude Code — already installed`);
+        console.log(`    ✓ Claude Code — already installed`);
         return;
       }
 
@@ -72,7 +72,7 @@ const TARGETS: HookTarget[] = [
 
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
-      console.log(`  [+] Claude Code — added PostToolUse hook`);
+      console.log(`    ✓ Claude Code — installed PostToolUse hook`);
     },
   },
   {
@@ -89,7 +89,7 @@ const TARGETS: HookTarget[] = [
       }
 
       if (content.includes("clockwerk hook")) {
-        console.log(`  [=] Codex CLI — already installed`);
+        console.log(`    ✓ Codex CLI — already installed`);
         return;
       }
 
@@ -98,7 +98,7 @@ const TARGETS: HookTarget[] = [
 
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, content);
-      console.log(`  [+] Codex CLI — added notify hook`);
+      console.log(`    ✓ Codex CLI — installed notify hook`);
     },
   },
   {
@@ -116,7 +116,7 @@ const TARGETS: HookTarget[] = [
       }
 
       if (content.includes("clockwerk hook")) {
-        console.log(`  [=] Aider — already installed`);
+        console.log(`    ✓ Aider — already installed`);
         return;
       }
 
@@ -124,10 +124,27 @@ const TARGETS: HookTarget[] = [
       content = content ? content.trimEnd() + "\n" + line : line;
 
       writeFileSync(path, content);
-      console.log(`  [+] Aider — added notifications hook`);
+      console.log(`    ✓ Aider — installed notifications hook`);
     },
   },
 ];
+
+/** Detect which hook targets are available on this system */
+export function detectTargets(): HookTarget[] {
+  return TARGETS.filter((t) => t.detect());
+}
+
+/** Install a single hook target */
+export function installTarget(target: HookTarget): void {
+  const bin = getClockwerkBin();
+  try {
+    target.install(bin);
+  } catch (err) {
+    console.error(
+      `    ! ${target.name} — failed: ${err instanceof Error ? err.message : err}`,
+    );
+  }
+}
 
 export function installHooks(targetId?: string): void {
   const bin = getClockwerkBin();

@@ -91,12 +91,17 @@ export interface PluginConfig {
 
 export interface ProjectConfig {
   version: 1;
+  project_name?: string;
   project_token: string;
-  api_url: string;
+  api_url?: string;
   privacy: PrivacyConfig;
   harnesses: Record<string, boolean>;
   watch?: WatchConfig;
   plugins?: PluginConfig[];
+}
+
+export function isLocalToken(token: string): boolean {
+  return token.startsWith("local_");
 }
 
 export interface ProjectRegistryEntry {

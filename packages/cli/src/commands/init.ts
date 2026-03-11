@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, basename } from "node:path";
 import {
   saveProjectConfig,
   findProjectConfig,
@@ -7,14 +6,10 @@ import {
   registerProject,
   type ProjectConfig,
 } from "@clockwerk/core";
+import { ask, confirm, close } from "../prompt";
+import { detectTargets, installTarget } from "./hook-install";
 
 export default async function init(args: string[]): Promise<void> {
-  const token = args[0];
-  if (!token) {
-    console.error("Usage: clockwerk init <project-token>");
-    process.exit(1);
-  }
-
   const cwd = process.cwd();
 
   // Check if already initialized
@@ -27,6 +22,64 @@ export default async function init(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  // If a cloud token is provided, use the quick (non-interactive) path
+  const tokenArg = args[0];
+  if (tokenArg && !tokenArg.startsWith("-")) {
+    await initWithCloudToken(cwd, tokenArg);
+    return;
+  }
+
+  // Interactive init
+  console.log("\n  Welcome to Clockwerk! Let's set up time tracking for this project.\n");
+
+  const dirName = basename(cwd);
+  const projectName = await ask("  Project name", dirName);
+
+  // Generate local token from project name
+  const slug = projectName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  const token = `local_${slug}`;
+
+  const config: ProjectConfig = {
+    version: 1,
+    project_name: projectName,
+    project_token: token,
+    privacy: {
+      sync_paths: false,
+      sync_branches: false,
+      sync_descriptions: false,
+    },
+    harnesses: {},
+  };
+
+  // Detect tools and ask about hook installation
+  const detected = detectTargets();
+
+  if (detected.length > 0) {
+    console.log("\n  Detected tools:");
+    for (const target of detected) {
+      const shouldInstall = await confirm(`    ${target.name} — install hook?`);
+      config.harnesses[target.id] = true;
+      if (shouldInstall) {
+        installTarget(target);
+      }
+    }
+  }
+
+  saveProjectConfig(cwd, config);
+  registerProject({ project_token: token, directory: cwd });
+
+  console.log(`\n  ✓ Created .clockwerk config`);
+  console.log(`\n  Tracking locally! Run 'clockwerk up' to start the daemon.`);
+  console.log(`  Tip: Run 'clockwerk login' to sync sessions to the cloud.\n`);
+
+  close();
+}
+
+/** Quick init with a cloud project token (power-user / dashboard onboarding flow) */
+async function initWithCloudToken(cwd: string, token: string): Promise<void> {
   const userConfig = getUserConfig();
   const apiUrl = userConfig?.api_url ?? "https://getclockwerk.com";
 
@@ -50,13 +103,11 @@ export default async function init(args: string[]): Promise<void> {
         console.error(`[clockwerk] Auth expired. Run 'clockwerk login' first.`);
         process.exit(1);
       } else {
-        // Non-critical — proceed anyway
         console.warn(
           `[clockwerk] Could not validate token (HTTP ${res.status}), proceeding anyway`,
         );
       }
     } catch {
-      // Network error — proceed without validation
       console.warn(
         `[clockwerk] Could not reach API to validate token, proceeding anyway`,
       );
@@ -79,33 +130,10 @@ export default async function init(args: string[]): Promise<void> {
     harnesses: {},
   };
 
-  // Detect available harnesses
-  const harnesses: string[] = [];
-
-  // Claude Code
-  const claudeSettings = resolve(process.env.HOME ?? "~", ".claude", "settings.json");
-  if (existsSync(claudeSettings)) {
-    config.harnesses["claude-code"] = true;
-    harnesses.push("Claude Code");
-  }
-
-  // Codex CLI
-  const codexConfig = resolve(process.env.HOME ?? "~", ".codex", "config.toml");
-  if (existsSync(codexConfig)) {
-    config.harnesses["codex"] = true;
-    harnesses.push("Codex CLI");
-  }
-
-  // Aider
-  if (existsSync(resolve(cwd, ".aider.conf.yml"))) {
-    config.harnesses["aider"] = true;
-    harnesses.push("Aider");
-  }
-
-  // Git
-  if (existsSync(resolve(cwd, ".git"))) {
-    config.harnesses["git-hooks"] = true;
-    harnesses.push("Git hooks");
+  // Auto-detect harnesses (silent, non-interactive)
+  const detected = detectTargets();
+  for (const target of detected) {
+    config.harnesses[target.id] = true;
   }
 
   saveProjectConfig(cwd, config);
@@ -114,11 +142,12 @@ export default async function init(args: string[]): Promise<void> {
   console.log(`[clockwerk] Initialized project (token: ${token})`);
   console.log(`[clockwerk] Config written to ${resolve(cwd, ".clockwerk")}`);
 
-  if (harnesses.length > 0) {
+  if (detected.length > 0) {
     console.log(`\nDetected harnesses:`);
-    for (const h of harnesses) {
-      console.log(`  [x] ${h}`);
+    for (const h of detected) {
+      console.log(`  [x] ${h.name}`);
     }
+    console.log(`\nRun 'clockwerk hook install' to set up hooks.`);
   }
 
   console.log(`\nRun 'clockwerk up' to start tracking.`);
