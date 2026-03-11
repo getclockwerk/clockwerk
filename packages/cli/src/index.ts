@@ -12,6 +12,7 @@ const COMMANDS: Record<string, () => Promise<void>> = {
   status: () => import("./commands/status").then((m) => m.default(args)),
   init: () => import("./commands/init").then((m) => m.default(args)),
   link: () => import("./commands/link").then((m) => m.default()),
+  config: () => import("./commands/config").then((m) => m.default(args)),
   hook: () => import("./commands/hook").then((m) => m.default(args)),
   log: () => import("./commands/log").then((m) => m.default(args)),
   mcp: () => import("./commands/mcp").then((m) => m.default(args)),
@@ -37,6 +38,10 @@ Commands:
   status            Show tracking status
   init [token]      Initialize project in current directory
   link              Link local project to cloud dashboard
+  config            View project config
+  config privacy    Edit privacy settings interactively
+  config name <n>   Set project name
+  config set <k> <v> Set a config value (e.g. privacy.sync_paths true)
   hook <source>     Log a hook event (used by AI tool integrations)
   hook install      Auto-detect and install hooks for AI tools
   hook install <id> Install hook for a specific tool (claude-code, codex, aider)

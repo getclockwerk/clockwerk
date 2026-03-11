@@ -22,18 +22,21 @@ export default async function init(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // If a cloud token is provided, use the quick (non-interactive) path
-  const tokenArg = args[0];
-  if (tokenArg && !tokenArg.startsWith("-")) {
-    await initWithCloudToken(cwd, tokenArg);
+  // If a cloud token (proj_*) is provided, use the quick (non-interactive) path
+  const firstArg = args[0];
+  if (firstArg && firstArg.startsWith("proj_")) {
+    await initWithCloudToken(cwd, firstArg);
     return;
   }
 
-  // Interactive init
+  // Interactive init — use first arg as project name if provided
   console.log("\n  Welcome to Clockwerk! Let's set up time tracking for this project.\n");
 
-  const dirName = basename(cwd);
-  const projectName = await ask("  Project name", dirName);
+  const defaultName = firstArg && !firstArg.startsWith("-") ? firstArg : basename(cwd);
+  const projectName =
+    firstArg && !firstArg.startsWith("-")
+      ? firstArg
+      : await ask("  Project name", defaultName);
 
   // Generate local token from project name
   const slug = projectName
