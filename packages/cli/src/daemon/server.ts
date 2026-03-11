@@ -93,6 +93,9 @@ function handleQuery(method: string, params?: Record<string, unknown>): unknown 
           since = Math.floor(d.getTime() / 1000);
           break;
         }
+        case "all":
+          since = 0;
+          break;
         default:
           since = now - 86400;
       }

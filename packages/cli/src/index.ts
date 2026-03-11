@@ -15,6 +15,7 @@ const COMMANDS: Record<string, () => Promise<void>> = {
   log: () => import("./commands/log").then((m) => m.default(args)),
   mcp: () => import("./commands/mcp").then((m) => m.default(args)),
   plugin: () => import("./commands/plugin").then((m) => m.default(args)),
+  export: () => import("./commands/export").then((m) => m.default(args)),
   "sync-reset": () => import("./commands/sync-reset").then((m) => m.default()),
   update: () => import("./commands/update").then((m) => m.default()),
   help: () => printHelp(),
@@ -38,6 +39,7 @@ Commands:
   hook install      Auto-detect and install hooks for AI tools
   hook install <id> Install hook for a specific tool (claude-code, codex, aider)
   log <dur> [desc]  Manually log time (e.g. clockwerk log 2h "meeting")
+  export            Export sessions (--format csv|json, --since, --all, -o)
   mcp serve         Start MCP server (for Claude Code, Cursor, etc.)
   plugin            Manage custom event plugins (add, remove, list)
   update            Update clockwerk to the latest version
