@@ -37,36 +37,53 @@ export function claudeCodeHookConfig(clockwerkBin: string): HookConfig {
 }
 
 /**
- * OpenAI Codex CLI notify configuration.
+ * Cursor postToolUse hook configuration.
  *
- * Sets the notify command in ~/.codex/config.toml to call
- * `clockwerk hook codex` with the JSON payload as an argument
- * after each agent turn.
+ * Adds a hook to ~/.cursor/hooks.json that pipes tool call JSON
+ * to `clockwerk hook cursor` after every tool use.
  */
-export function codexHookConfig(clockwerkBin: string): HookConfig {
+export function cursorHookConfig(clockwerkBin: string): HookConfig {
   return {
-    source: "codex",
-    description: "Codex CLI notify hook",
-    configPath: "~/.codex/config.toml",
+    source: "cursor",
+    description: "Cursor postToolUse hook",
+    configPath: "~/.cursor/hooks.json",
     generate: () => ({
-      notify: [clockwerkBin, "hook", "codex"],
+      version: 1,
+      hooks: {
+        postToolUse: [
+          {
+            type: "command",
+            bash: `${clockwerkBin} hook cursor`,
+            timeoutSec: 5,
+          },
+        ],
+      },
     }),
   };
 }
 
 /**
- * Aider notifications-command configuration.
+ * GitHub Copilot CLI postToolUse hook configuration.
  *
- * Sets the notifications-command in .aider.conf.yml to call
- * `clockwerk hook aider` when the LLM finishes a turn.
+ * Adds a hook to .github/hooks/clockwerk.json that pipes tool call JSON
+ * to `clockwerk hook copilot` after every tool use.
  */
-export function aiderHookConfig(clockwerkBin: string): HookConfig {
+export function copilotHookConfig(clockwerkBin: string): HookConfig {
   return {
-    source: "aider",
-    description: "Aider notifications hook",
-    configPath: ".aider.conf.yml",
+    source: "copilot",
+    description: "Copilot CLI postToolUse hook",
+    configPath: ".github/hooks/clockwerk.json",
     generate: () => ({
-      "notifications-command": `${clockwerkBin} hook aider`,
+      version: 1,
+      hooks: {
+        postToolUse: [
+          {
+            type: "command",
+            bash: `${clockwerkBin} hook copilot`,
+            timeoutSec: 5,
+          },
+        ],
+      },
     }),
   };
 }

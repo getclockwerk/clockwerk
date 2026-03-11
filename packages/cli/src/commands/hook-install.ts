@@ -76,55 +76,89 @@ const TARGETS: HookTarget[] = [
     },
   },
   {
-    id: "codex",
-    name: "Codex CLI",
-    configPath: resolve(HOME, ".codex", "config.toml"),
-    detect: () => existsSync(resolve(HOME, ".codex")),
+    id: "cursor",
+    name: "Cursor",
+    configPath: resolve(HOME, ".cursor", "hooks.json"),
+    detect: () => existsSync(resolve(HOME, ".cursor")),
     install(bin) {
       const path = this.configPath;
-      let content = "";
+      let config: Record<string, unknown> = { version: 1, hooks: {} };
 
       if (existsSync(path)) {
-        content = readFileSync(path, "utf-8");
+        try {
+          config = JSON.parse(readFileSync(path, "utf-8"));
+        } catch {
+          /* start fresh */
+        }
       }
 
-      if (content.includes("clockwerk hook")) {
-        console.log(`    ✓ Codex CLI — already installed`);
+      const hooks = (config.hooks ?? {}) as Record<string, unknown[]>;
+      const postToolUse = (hooks.postToolUse ?? []) as Record<string, unknown>[];
+
+      const alreadyInstalled = postToolUse.some(
+        (h) => typeof h.bash === "string" && h.bash.includes("clockwerk hook"),
+      );
+      if (alreadyInstalled) {
+        console.log(`    ✓ Cursor — already installed`);
         return;
       }
 
-      const notifyLine = `notify = ["${bin}", "hook", "codex"]\n`;
-      content = content ? content.trimEnd() + "\n" + notifyLine : notifyLine;
+      postToolUse.push({
+        type: "command",
+        bash: `${bin} hook cursor`,
+        timeoutSec: 5,
+      });
+
+      hooks.postToolUse = postToolUse;
+      config.hooks = hooks;
+      config.version = 1;
 
       mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, content);
-      console.log(`    ✓ Codex CLI — installed notify hook`);
+      writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
+      console.log(`    ✓ Cursor — installed postToolUse hook`);
     },
   },
   {
-    id: "aider",
-    name: "Aider",
-    configPath: resolve(HOME, ".aider.conf.yml"),
-    detect: () =>
-      existsSync(resolve(HOME, ".aider.conf.yml")) || existsSync(resolve(HOME, ".aider")),
+    id: "copilot",
+    name: "Copilot CLI",
+    configPath: resolve(".github", "hooks", "clockwerk.json"),
+    detect: () => existsSync(resolve(HOME, ".copilot")),
     install(bin) {
       const path = this.configPath;
-      let content = "";
+      let config: Record<string, unknown> = { version: 1, hooks: {} };
 
       if (existsSync(path)) {
-        content = readFileSync(path, "utf-8");
+        try {
+          config = JSON.parse(readFileSync(path, "utf-8"));
+        } catch {
+          /* start fresh */
+        }
       }
 
-      if (content.includes("clockwerk hook")) {
-        console.log(`    ✓ Aider — already installed`);
+      const hooks = (config.hooks ?? {}) as Record<string, unknown[]>;
+      const postToolUse = (hooks.postToolUse ?? []) as Record<string, unknown>[];
+
+      const alreadyInstalled = postToolUse.some(
+        (h) => typeof h.bash === "string" && h.bash.includes("clockwerk hook"),
+      );
+      if (alreadyInstalled) {
+        console.log(`    ✓ Copilot CLI — already installed`);
         return;
       }
 
-      const line = `notifications-command: ${bin} hook aider\n`;
-      content = content ? content.trimEnd() + "\n" + line : line;
+      postToolUse.push({
+        type: "command",
+        bash: `${bin} hook copilot`,
+        timeoutSec: 5,
+      });
 
-      writeFileSync(path, content);
-      console.log(`    ✓ Aider — installed notifications hook`);
+      hooks.postToolUse = postToolUse;
+      config.hooks = hooks;
+      config.version = 1;
+
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
+      console.log(`    ✓ Copilot CLI — installed postToolUse hook`);
     },
   },
 ];

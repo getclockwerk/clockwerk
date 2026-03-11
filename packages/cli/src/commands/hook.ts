@@ -13,8 +13,8 @@ import { isDaemonRunning } from "../daemon/server";
  *
  * Input varies by source:
  * - claude-code: reads JSON from stdin (PostToolUse hook)
- * - codex: reads JSON from argv[1] (notify system)
- * - aider: no structured input (notifications-command)
+ * - cursor: reads JSON from stdin (postToolUse hook)
+ * - copilot: reads JSON from stdin (postToolUse hook)
  * - generic: reads JSON from stdin
  *
  * Usage: clockwerk hook <source> [json-payload]
@@ -32,26 +32,10 @@ export default async function hook(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Codex passes JSON as argv, aider passes nothing, claude-code uses stdin
-  let input = "";
-  if (args[1]) {
-    input = args[1];
-  } else if (source !== "aider") {
-    input = await Bun.stdin.text();
-    if (!input.trim()) return;
-  }
+  const input = await Bun.stdin.text();
+  if (!input.trim()) return;
 
-  // Find project config — for codex, use cwd from payload if available
-  let cwd = process.cwd();
-  if (source === "codex" && input) {
-    try {
-      const parsed = JSON.parse(input);
-      if (parsed.cwd) cwd = parsed.cwd;
-    } catch {
-      // Use process.cwd()
-    }
-  }
-
+  const cwd = process.cwd();
   const projectConfig = findProjectConfig(cwd);
   if (!projectConfig) return; // Not in a tracked project, silently exit
 
@@ -64,11 +48,11 @@ export default async function hook(args: string[]): Promise<void> {
     case "claude-code":
       event = parseClaudeCodeHook(input, projectConfig.project_token, projectRoot);
       break;
-    case "codex":
-      event = parseCodexHook(input, projectConfig.project_token, projectRoot);
+    case "cursor":
+      event = parseCursorHook(input, projectConfig.project_token, projectRoot);
       break;
-    case "aider":
-      event = parseAiderHook(projectConfig.project_token, projectRoot);
+    case "copilot":
+      event = parseCopilotHook(input, projectConfig.project_token, projectRoot);
       break;
     default:
       // Generic: expect a JSON object with at least event_type
@@ -151,7 +135,13 @@ function parseClaudeCodeHook(
   };
 }
 
-function parseCodexHook(
+/**
+ * Cursor postToolUse hook.
+ *
+ * Receives JSON via stdin with fields:
+ *   { toolName, toolArgs, toolResult, cwd, conversation_id, ... }
+ */
+function parseCursorHook(
   input: string,
   projectToken: string,
   projectRoot: string | null,
@@ -163,58 +153,127 @@ function parseCodexHook(
     parsed = {};
   }
 
-  const eventType = parsed.type as string;
-  if (eventType && eventType !== "agent-turn-complete") {
-    // Only track turn completions — skip other notify events
-    return {
-      id: crypto.randomUUID(),
-      timestamp: Math.floor(Date.now() / 1000),
-      event_type: "heartbeat",
-      source: "codex",
-      project_token: projectToken,
-      context: {},
-    };
+  const toolName =
+    (parsed.toolName as string) ?? (parsed.hook_event_name as string) ?? "unknown";
+  const sessionId = parsed.conversation_id as string | undefined;
+
+  let description: string | undefined;
+  let filePath: string | undefined;
+
+  // toolArgs comes as a JSON string from Cursor
+  const toolArgs = parseToolArgs(parsed.toolArgs);
+
+  switch (toolName.toLowerCase()) {
+    case "shell":
+    case "bash":
+      description = (toolArgs.command as string) ?? (toolArgs.description as string);
+      break;
+    case "write":
+    case "read":
+    case "edit": {
+      const fp = (toolArgs.file_path as string) ?? (toolArgs.filePath as string);
+      if (fp && projectRoot) {
+        filePath = fp.startsWith(projectRoot) ? fp.slice(projectRoot.length + 1) : fp;
+      }
+      description = filePath ?? toolName;
+      break;
+    }
+    default:
+      description = toolName;
   }
 
-  const threadId = parsed["thread-id"] as string | undefined;
-  const lastMessage = parsed["last-assistant-message"] as string | undefined;
-
-  // Extract branch
   const { branch, issueId } = extractGitInfo(projectRoot);
 
   return {
     id: crypto.randomUUID(),
     timestamp: Math.floor(Date.now() / 1000),
     event_type: "tool_call",
-    source: "codex",
+    source: "cursor",
     project_token: projectToken,
     context: {
-      description: lastMessage?.slice(0, 200),
+      tool_name: toolName.slice(0, 64),
+      description: description?.slice(0, 200),
+      file_path: filePath,
       branch,
       issue_id: issueId,
     },
-    harness_session_id: threadId,
+    harness_session_id: sessionId,
   };
 }
 
-function parseAiderHook(
+/**
+ * GitHub Copilot CLI postToolUse hook.
+ *
+ * Receives JSON via stdin with fields:
+ *   { toolName, toolArgs, toolResult, timestamp, cwd }
+ */
+function parseCopilotHook(
+  input: string,
   projectToken: string,
   projectRoot: string | null,
 ): ClockwerkEvent {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(input);
+  } catch {
+    parsed = {};
+  }
+
+  const toolName = (parsed.toolName as string) ?? "unknown";
+
+  let description: string | undefined;
+  let filePath: string | undefined;
+
+  // toolArgs comes as a JSON string from Copilot
+  const toolArgs = parseToolArgs(parsed.toolArgs);
+
+  switch (toolName.toLowerCase()) {
+    case "bash":
+    case "shell":
+      description = (toolArgs.command as string) ?? (toolArgs.description as string);
+      break;
+    case "write":
+    case "read":
+    case "edit": {
+      const fp = (toolArgs.file_path as string) ?? (toolArgs.filePath as string);
+      if (fp && projectRoot) {
+        filePath = fp.startsWith(projectRoot) ? fp.slice(projectRoot.length + 1) : fp;
+      }
+      description = filePath ?? toolName;
+      break;
+    }
+    default:
+      description = toolName;
+  }
+
   const { branch, issueId } = extractGitInfo(projectRoot);
 
   return {
     id: crypto.randomUUID(),
     timestamp: Math.floor(Date.now() / 1000),
-    event_type: "heartbeat",
-    source: "aider",
+    event_type: "tool_call",
+    source: "copilot",
     project_token: projectToken,
     context: {
-      description: "Aider turn complete",
+      tool_name: toolName.slice(0, 64),
+      description: description?.slice(0, 200),
+      file_path: filePath,
       branch,
       issue_id: issueId,
     },
   };
+}
+
+function parseToolArgs(raw: unknown): Record<string, unknown> {
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  if (typeof raw === "object" && raw) return raw as Record<string, unknown>;
+  return {};
 }
 
 function extractGitInfo(projectRoot: string | null): {

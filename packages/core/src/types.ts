@@ -10,11 +10,9 @@ export type EventType =
 
 export type Source =
   | "claude-code"
-  | "codex"
   | "cursor"
   | "copilot"
   | "chatgpt"
-  | "aider"
   | "manual"
   | "file-watch";
 

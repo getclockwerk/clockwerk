@@ -44,7 +44,7 @@ Commands:
   config set <k> <v> Set a config value (e.g. privacy.sync_paths true)
   hook <source>     Log a hook event (used by AI tool integrations)
   hook install      Auto-detect and install hooks for AI tools
-  hook install <id> Install hook for a specific tool (claude-code, codex, aider)
+  hook install <id> Install hook for a specific tool (claude-code, cursor, copilot)
   log <dur> [desc]  Manually log time (e.g. clockwerk log 2h "meeting")
   export            Export sessions (--format csv|json, --since, --all, -o)
   mcp serve         Start MCP server (for Claude Code, Cursor, etc.)
