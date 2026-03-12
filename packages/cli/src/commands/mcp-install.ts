@@ -37,7 +37,7 @@ const TARGETS: McpTarget[] = [
   {
     id: "claude-code",
     name: "Claude Code",
-    configPath: resolve(HOME, ".claude", "settings.json"),
+    configPath: resolve(HOME, ".claude.json"),
     detect: () => existsSync(resolve(HOME, ".claude")),
     install(bin) {
       const path = this.configPath;
@@ -50,13 +50,14 @@ const TARGETS: McpTarget[] = [
       }
 
       servers.clockwerk = {
+        type: "stdio",
         command: bin,
         args: ["mcp", "serve"],
       };
 
       config.mcpServers = servers;
       writeJson(path, config);
-      console.log("    ✓ Claude Code — added MCP server to settings.json");
+      console.log("    ✓ Claude Code — added MCP server to ~/.claude.json");
     },
   },
   {

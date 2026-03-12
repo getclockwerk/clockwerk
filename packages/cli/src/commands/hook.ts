@@ -276,6 +276,26 @@ function parseToolArgs(raw: unknown): Record<string, unknown> {
   return {};
 }
 
+function extractIssueId(branch: string): string | undefined {
+  // Linear-style: ABC-123 (takes precedence)
+  const linearMatch = branch.match(/[A-Z]+-\d+/i);
+  if (linearMatch) return linearMatch[0].toUpperCase();
+
+  // GitHub-style: extract number from common patterns
+  const ghPatterns = [
+    /(?:^|[/])(\d+)[-_]/, // feature/123-desc or 123_desc
+    /[-_](\d+)$/, // desc-123
+    /issue[-_]?(\d+)/i, // issue-123 or issue123
+    /gh[-_](\d+)/i, // gh-123
+  ];
+  for (const p of ghPatterns) {
+    const m = branch.match(p);
+    if (m) return `#${m[1]}`;
+  }
+
+  return undefined;
+}
+
 function extractGitInfo(projectRoot: string | null): {
   branch: string | undefined;
   issueId: string | undefined;
@@ -300,8 +320,7 @@ function extractGitInfo(projectRoot: string | null): {
   }
 
   if (branch) {
-    const match = branch.match(/[A-Z]+-\d+/i);
-    if (match) issueId = match[0].toUpperCase();
+    issueId = extractIssueId(branch);
   }
 
   return { branch, issueId };
