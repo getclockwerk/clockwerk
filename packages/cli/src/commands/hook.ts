@@ -1,10 +1,13 @@
 import {
   findProjectConfig,
   findProjectRoot,
+  getProjectRegistry,
+  resolveProjectFromPath,
   type ClockwerkEvent,
   type EventType,
   type Source,
 } from "@clockwerk/core";
+import { relative as pathRelative } from "node:path";
 import { sendEvent } from "../daemon/client";
 import { isDaemonRunning } from "../daemon/server";
 
@@ -60,12 +63,62 @@ export default async function hook(args: string[]): Promise<void> {
       break;
   }
 
+  // Cross-project resolution: if the file path belongs to a different
+  // registered project, override token, file_path, branch, and issue_id.
+  const absoluteFilePath = extractAbsoluteFilePath(input);
+  if (absoluteFilePath) {
+    const registry = getProjectRegistry();
+    const match = resolveProjectFromPath(absoluteFilePath, registry);
+    if (match && match.project_token !== event.project_token) {
+      event.project_token = match.project_token;
+      // Re-relativize file_path to the matched project root
+      if (event.context.file_path) {
+        event.context.file_path = pathRelative(match.directory, absoluteFilePath);
+      }
+      // Re-resolve branch and issue_id from the matched project
+      const { branch, issueId } = extractGitInfo(match.directory);
+      event.context.branch = branch;
+      event.context.issue_id = issueId;
+    }
+  }
+
   // Skip if daemon isn't running — events are only accepted when the user
   // has explicitly started the daemon with `clockwerk up`.
   if (!isDaemonRunning()) return;
 
   // Fire and forget to daemon
   await sendEvent({ type: "event", data: event });
+}
+
+/**
+ * Extract an absolute file path from the raw hook JSON input.
+ * Handles Claude Code (tool_input.file_path, tool_input.path) and
+ * Cursor/Copilot (toolArgs.file_path, toolArgs.filePath, toolArgs.path).
+ */
+function extractAbsoluteFilePath(input: string): string | null {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(input);
+  } catch {
+    return null;
+  }
+
+  // Claude Code format: tool_input.file_path or tool_input.path
+  const toolInput = parsed.tool_input as Record<string, unknown> | undefined;
+  if (toolInput) {
+    const fp = (toolInput.file_path as string) ?? (toolInput.path as string);
+    if (fp && fp.startsWith("/")) return fp;
+  }
+
+  // Cursor/Copilot format: toolArgs (may be JSON string)
+  const toolArgs = parseToolArgs(parsed.toolArgs);
+  const fp =
+    (toolArgs.file_path as string) ??
+    (toolArgs.filePath as string) ??
+    (toolArgs.path as string);
+  if (fp && fp.startsWith("/")) return fp;
+
+  return null;
 }
 
 function parseClaudeCodeHook(
@@ -105,12 +158,28 @@ function parseClaudeCodeHook(
       description = filePath ?? toolName;
       break;
     }
-    case "Grep":
-      description = (parsed.tool_input as Record<string, unknown>)?.pattern as string;
+    case "Grep": {
+      const ti = parsed.tool_input as Record<string, unknown>;
+      description = ti?.pattern as string;
+      const grepPath = ti?.path as string;
+      if (grepPath && projectRoot) {
+        filePath = grepPath.startsWith(projectRoot)
+          ? grepPath.slice(projectRoot.length + 1)
+          : grepPath;
+      }
       break;
-    case "Glob":
-      description = (parsed.tool_input as Record<string, unknown>)?.pattern as string;
+    }
+    case "Glob": {
+      const ti = parsed.tool_input as Record<string, unknown>;
+      description = ti?.pattern as string;
+      const globPath = ti?.path as string;
+      if (globPath && projectRoot) {
+        filePath = globPath.startsWith(projectRoot)
+          ? globPath.slice(projectRoot.length + 1)
+          : globPath;
+      }
       break;
+    }
     default:
       description = toolName;
   }

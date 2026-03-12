@@ -116,3 +116,31 @@ export function unregisterProject(directory: string): void {
   const registry = getProjectRegistry().filter((e) => e.directory !== directory);
   writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2) + "\n");
 }
+
+/**
+ * Given an absolute file path, find the project registry entry whose directory
+ * is the longest prefix match. Uses a path-boundary check so `/dev/time` won't
+ * match `/dev/time-extra`.
+ */
+export function resolveProjectFromPath(
+  absolutePath: string,
+  registry?: ProjectRegistryEntry[],
+): ProjectRegistryEntry | null {
+  const entries = registry ?? getProjectRegistry();
+  let best: ProjectRegistryEntry | null = null;
+  let bestLen = 0;
+
+  for (const entry of entries) {
+    const dir = entry.directory;
+    if (
+      absolutePath.startsWith(dir) &&
+      (absolutePath.length === dir.length || absolutePath[dir.length] === "/") &&
+      dir.length > bestLen
+    ) {
+      best = entry;
+      bestLen = dir.length;
+    }
+  }
+
+  return best;
+}
