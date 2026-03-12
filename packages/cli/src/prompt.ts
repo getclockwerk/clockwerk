@@ -1,14 +1,21 @@
 import * as readline from "node:readline";
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
+let rl: readline.Interface | null = null;
+
+function getRL(): readline.Interface {
+  if (!rl) {
+    rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+  }
+  return rl;
+}
 
 export function ask(question: string, defaultValue?: string): Promise<string> {
   const suffix = defaultValue ? ` (${defaultValue})` : "";
   return new Promise((resolve) => {
-    rl.question(`${question}${suffix}: `, (answer) => {
+    getRL().question(`${question}${suffix}: `, (answer) => {
       resolve(answer.trim() || defaultValue || "");
     });
   });
@@ -17,7 +24,7 @@ export function ask(question: string, defaultValue?: string): Promise<string> {
 export function confirm(question: string, defaultYes = true): Promise<boolean> {
   const hint = defaultYes ? "[Y/n]" : "[y/N]";
   return new Promise((resolve) => {
-    rl.question(`${question} ${hint} `, (answer) => {
+    getRL().question(`${question} ${hint} `, (answer) => {
       const a = answer.trim().toLowerCase();
       if (!a) return resolve(defaultYes);
       resolve(a === "y" || a === "yes");
@@ -36,7 +43,7 @@ export function choose(
       const marker = i === defaultIndex ? ">" : " ";
       console.log(`  ${marker} ${i + 1}. ${options[i]}`);
     }
-    rl.question(`Choice (1-${options.length}) [${defaultIndex + 1}]: `, (answer) => {
+    getRL().question(`Choice (1-${options.length}) [${defaultIndex + 1}]: `, (answer) => {
       const a = answer.trim();
       if (!a) return resolve(defaultIndex);
       const n = parseInt(a, 10);
@@ -47,5 +54,6 @@ export function choose(
 }
 
 export function close(): void {
-  rl.close();
+  rl?.close();
+  rl = null;
 }
