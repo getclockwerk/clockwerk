@@ -2,10 +2,11 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { getDaemonSocketPath } from "@clockwerk/core";
 import { isDaemonRunning, startDaemon } from "../daemon/server";
+import { error, info, spinner } from "../ui";
 
 export default async function up(_args: string[]): Promise<void> {
   if (isDaemonRunning()) {
-    console.log("[clockwerk] Daemon is already running.");
+    info("Daemon is already running.");
     return;
   }
 
@@ -16,14 +17,23 @@ export default async function up(_args: string[]): Promise<void> {
     return;
   }
 
-  // Spawn daemon in background — re-exec the current binary
-  const child = spawn(process.execPath, ["up", "--foreground"], {
+  // Spawn daemon in background — re-exec the current entry point
+  // When running from source (bun run index.ts), argv[1] is the script path.
+  // When running as a compiled binary, argv[1] is the first CLI arg (e.g. "up").
+  const scriptPath = process.argv[1];
+  const isFromSource = scriptPath?.match(/\.[tj]sx?$/);
+  const daemonArgs = isFromSource
+    ? [scriptPath, "up", "--foreground"]
+    : ["up", "--foreground"];
+
+  const child = spawn(process.execPath, daemonArgs, {
     detached: true,
     stdio: "ignore",
   });
   child.unref();
 
   // Poll for socket to confirm daemon is ready (up to 3s)
+  const spin = spinner("Starting daemon");
   const socketPath = getDaemonSocketPath();
   let started = false;
   for (let i = 0; i < 30; i++) {
@@ -35,9 +45,10 @@ export default async function up(_args: string[]): Promise<void> {
   }
 
   if (started) {
-    console.log("[clockwerk] Daemon started in background.");
+    spin.stop("Daemon started");
   } else {
-    console.error("[clockwerk] Failed to start daemon.");
+    spin.stop();
+    error("Failed to start daemon.");
     process.exit(1);
   }
 }

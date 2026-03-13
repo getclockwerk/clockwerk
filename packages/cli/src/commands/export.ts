@@ -1,9 +1,9 @@
 import { isDaemonRunning } from "../daemon/server";
-import { queryDaemon } from "../daemon/client";
-import { findProjectConfig } from "@clockwerk/core";
+import { queryDaemon, findProjectConfig } from "@clockwerk/core";
 import type { Session } from "@clockwerk/core";
 import { formatDuration } from "../format";
 import { writeFileSync } from "node:fs";
+import { error, info } from "../ui";
 
 function parseArgs(args: string[]) {
   let format: "csv" | "json" = "csv";
@@ -16,7 +16,7 @@ function parseArgs(args: string[]) {
     if (arg === "--format" && args[i + 1]) {
       const val = args[++i];
       if (val !== "csv" && val !== "json") {
-        console.error(`Invalid format: ${val}. Use 'csv' or 'json'.`);
+        error(`Invalid format: ${val}. Use 'csv' or 'json'.`);
         process.exit(1);
       }
       format = val;
@@ -45,20 +45,20 @@ function parseSince(since: string | undefined, all: boolean): number | undefined
   // Parse YYYY-MM-DD
   const date = new Date(since);
   if (isNaN(date.getTime())) {
-    console.error(`Invalid date: ${since}. Use YYYY-MM-DD format.`);
+    error(`Invalid date: ${since}. Use YYYY-MM-DD format.`);
     process.exit(1);
   }
   return Math.floor(date.getTime() / 1000);
 }
 
-function escapeCsvField(value: string): string {
+export function escapeCsvField(value: string): string {
   if (value.includes(",") || value.includes('"') || value.includes("\n")) {
     return `"${value.replace(/"/g, '""')}"`;
   }
   return value;
 }
 
-function sessionToCsvRow(s: Session): string {
+export function sessionToCsvRow(s: Session): string {
   const start = new Date(s.start_ts * 1000);
   const end = new Date(s.end_ts * 1000);
 
@@ -86,7 +86,7 @@ export default async function exportCommand(args: string[]): Promise<void> {
   const opts = parseArgs(args);
 
   if (!isDaemonRunning()) {
-    console.error("Daemon is not running. Start it with 'clockwerk up'.");
+    error("Daemon is not running. Start it with 'clockwerk up'.");
     process.exit(1);
   }
 
@@ -132,14 +132,14 @@ export default async function exportCommand(args: string[]): Promise<void> {
 
     if (opts.output) {
       writeFileSync(opts.output, output);
-      console.error(
+      info(
         `Exported ${sessions.length} session(s) (${formatDuration(data.total_seconds)}) to ${opts.output}`,
       );
     } else {
       process.stdout.write(output);
     }
   } catch (err) {
-    console.error("Failed to query daemon:", err);
+    error(`Failed to query daemon: ${err}`);
     process.exit(1);
   }
 }

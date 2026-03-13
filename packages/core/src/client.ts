@@ -1,6 +1,6 @@
 import { connect } from "node:net";
-import { getDaemonSocketPath } from "@clockwerk/core";
-import type { DaemonMessage, DaemonResponse } from "@clockwerk/core";
+import { getDaemonSocketPath } from "./config";
+import type { DaemonMessage, DaemonResponse } from "./types";
 
 /**
  * Send a fire-and-forget event to the daemon.

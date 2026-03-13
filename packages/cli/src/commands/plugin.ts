@@ -8,6 +8,7 @@ import {
   type EventType,
 } from "@clockwerk/core";
 import { parseLine } from "../daemon/plugins";
+import { success, error, info, dim, pc } from "../ui";
 
 const VALID_EVENT_TYPES: EventType[] = [
   "tool_call",
@@ -52,7 +53,7 @@ const TEMPLATES: Record<string, Omit<PluginConfig, "name">> = {
 function printUsage(): void {
   const templateNames = Object.keys(TEMPLATES).join(", ");
   console.log(`
-clockwerk plugin — Manage custom event plugins
+clockwerk plugin - Manage custom event plugins
 
 Usage:
   clockwerk plugin add <name> --command <cmd> [options]
@@ -92,8 +93,8 @@ function parseFlags(args: string[]): Record<string, string> {
 async function add(args: string[]): Promise<void> {
   const name = args[0];
   if (!name || name.startsWith("--")) {
-    console.error("Error: Plugin name is required.");
-    console.error("Usage: clockwerk plugin add <name> --command <cmd>");
+    error("Plugin name is required.");
+    dim("Usage: clockwerk plugin add <name> --command <cmd>");
     process.exit(1);
   }
 
@@ -108,8 +109,8 @@ async function add(args: string[]): Promise<void> {
   if (flags["template"]) {
     const template = TEMPLATES[flags["template"]];
     if (!template) {
-      console.error(`Error: Unknown template "${flags["template"]}".`);
-      console.error(`Available: ${Object.keys(TEMPLATES).join(", ")}`);
+      error(`Unknown template "${flags["template"]}".`);
+      dim(`Available: ${Object.keys(TEMPLATES).join(", ")}`);
       process.exit(1);
     }
     // Template provides defaults, flags override
@@ -120,36 +121,36 @@ async function add(args: string[]): Promise<void> {
   }
 
   if (!command) {
-    console.error("Error: --command or --template is required.");
-    console.error('Example: clockwerk plugin add my-plugin --command "tail -f log.txt"');
+    error("--command or --template is required.");
+    dim('Example: clockwerk plugin add my-plugin --command "tail -f log.txt"');
     process.exit(1);
   }
 
   eventType = eventType ?? "manual";
   if (!VALID_EVENT_TYPES.includes(eventType)) {
-    console.error(`Error: Invalid event type "${eventType}".`);
-    console.error(`Valid types: ${VALID_EVENT_TYPES.join(", ")}`);
+    error(`Invalid event type "${eventType}".`);
+    dim(`Valid types: ${VALID_EVENT_TYPES.join(", ")}`);
     process.exit(1);
   }
 
   source = source ?? `plugin:${name}`;
 
   if (!isValidSource(source)) {
-    console.error(
-      `Error: Invalid source "${source}". Must be 2-64 chars, lowercase alphanumeric with hyphens/colons.`,
+    error(
+      `Invalid source "${source}". Must be 2-64 chars, lowercase alphanumeric with hyphens/colons.`,
     );
     process.exit(1);
   }
 
   if (interval !== undefined && (isNaN(interval) || interval < 0)) {
-    console.error("Error: --interval must be a non-negative number.");
+    error("--interval must be a non-negative number.");
     process.exit(1);
   }
 
   const cwd = process.cwd();
   const configPath = findProjectConfigPath(cwd);
   if (!configPath) {
-    console.error("Error: No .clockwerk config found. Run 'clockwerk init' first.");
+    error("No .clockwerk config found. Run 'clockwerk init' first.");
     process.exit(1);
   }
 
@@ -161,9 +162,7 @@ async function add(args: string[]): Promise<void> {
   // Check for duplicate
   const existing = config.plugins.find((p) => p.name === name);
   if (existing) {
-    console.error(
-      `Error: Plugin "${name}" already exists. Remove it first to reconfigure.`,
-    );
+    error(`Plugin "${name}" already exists. Remove it first to reconfigure.`);
     process.exit(1);
   }
 
@@ -178,25 +177,26 @@ async function add(args: string[]): Promise<void> {
   config.plugins.push(plugin);
   saveProjectConfig(projectDir, config);
 
-  console.log(`[clockwerk] Plugin "${name}" added.`);
+  success(`Plugin "${name}" added.`);
   console.log(`  command:    ${command}`);
   console.log(`  event_type: ${eventType}`);
   console.log(`  source:     ${source}`);
   if (interval !== undefined) console.log(`  interval:   ${interval}s`);
-  console.log(`\nThe daemon will pick up this plugin automatically.`);
+  dim("\nThe daemon will pick up this plugin automatically.");
 }
 
 async function remove(args: string[]): Promise<void> {
   const name = args[0];
   if (!name) {
-    console.error("Usage: clockwerk plugin remove <name>");
+    error("Plugin name is required.");
+    dim("Usage: clockwerk plugin remove <name>");
     process.exit(1);
   }
 
   const cwd = process.cwd();
   const configPath = findProjectConfigPath(cwd);
   if (!configPath) {
-    console.error("Error: No .clockwerk config found.");
+    error("No .clockwerk config found.");
     process.exit(1);
   }
 
@@ -204,7 +204,7 @@ async function remove(args: string[]): Promise<void> {
   const config = findProjectConfig(cwd)!;
 
   if (!config.plugins || config.plugins.length === 0) {
-    console.error("No plugins configured.");
+    error("No plugins configured.");
     process.exit(1);
   }
 
@@ -212,35 +212,35 @@ async function remove(args: string[]): Promise<void> {
   config.plugins = config.plugins.filter((p) => p.name !== name);
 
   if (config.plugins.length === before) {
-    console.error(`Plugin "${name}" not found.`);
+    error(`Plugin "${name}" not found.`);
     process.exit(1);
   }
 
   if (config.plugins.length === 0) delete config.plugins;
 
   saveProjectConfig(projectDir, config);
-  console.log(`[clockwerk] Plugin "${name}" removed.`);
-  console.log(`\nThe daemon will pick up this change automatically.`);
+  success(`Plugin "${name}" removed.`);
+  dim("\nThe daemon will pick up this change automatically.");
 }
 
 async function list(_args: string[]): Promise<void> {
   const cwd = process.cwd();
   const config = findProjectConfig(cwd);
   if (!config) {
-    console.error("Error: No .clockwerk config found.");
+    error("No .clockwerk config found.");
     process.exit(1);
   }
 
   const plugins = config.plugins ?? [];
   if (plugins.length === 0) {
-    console.log("No plugins configured.");
-    console.log("Add one with: clockwerk plugin add <name> --command <cmd>");
-    console.log(`\nOr use a template: clockwerk plugin add <name> --template <template>`);
-    console.log(`Available templates: ${Object.keys(TEMPLATES).join(", ")}`);
+    info("No plugins configured.");
+    dim("Add one with: clockwerk plugin add <name> --command <cmd>");
+    dim(`\nOr use a template: clockwerk plugin add <name> --template <template>`);
+    dim(`Available templates: ${Object.keys(TEMPLATES).join(", ")}`);
     return;
   }
 
-  console.log(`Plugins (${plugins.length}):\n`);
+  info(`Plugins (${plugins.length}):\n`);
   for (const p of plugins) {
     console.log(`  ${p.name}`);
     console.log(`    command:    ${p.command}`);
@@ -254,27 +254,28 @@ async function list(_args: string[]): Promise<void> {
 async function test(args: string[]): Promise<void> {
   const name = args[0];
   if (!name) {
-    console.error("Usage: clockwerk plugin test <name>");
+    error("Plugin name is required.");
+    dim("Usage: clockwerk plugin test <name>");
     process.exit(1);
   }
 
   const cwd = process.cwd();
   const config = findProjectConfig(cwd);
   if (!config) {
-    console.error("Error: No .clockwerk config found.");
+    error("No .clockwerk config found.");
     process.exit(1);
   }
 
   const plugin = (config.plugins ?? []).find((p) => p.name === name);
   if (!plugin) {
-    console.error(`Plugin "${name}" not found.`);
+    error(`Plugin "${name}" not found.`);
     process.exit(1);
   }
 
   const configPath = findProjectConfigPath(cwd)!;
   const projectDir = resolve(configPath, "..");
 
-  console.log(`Testing plugin "${name}"...`);
+  info(`Testing plugin "${name}"...`);
   console.log(`  command:    ${plugin.command}`);
   console.log(`  event_type: ${plugin.event_type}`);
   console.log(`  source:     ${plugin.source}`);
@@ -306,7 +307,7 @@ async function test(args: string[]): Promise<void> {
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
         for (const line of lines) {
-          if (line.trim()) console.error(`  \x1b[31mstderr:\x1b[0m ${line.trim()}`);
+          if (line.trim()) console.error(`  ${pc.red("stderr:")} ${line.trim()}`);
         }
       }
     } catch {
@@ -317,7 +318,7 @@ async function test(args: string[]): Promise<void> {
   // Read stdout and show parsed events
   const stdout = proc.stdout;
   if (!stdout || typeof stdout === "number") {
-    console.error("Error: Could not read plugin stdout.");
+    error("Could not read plugin stdout.");
     process.exit(1);
   }
 
@@ -360,10 +361,10 @@ async function test(args: string[]): Promise<void> {
         });
 
         if (throttled) {
-          console.log(`  \x1b[33m${time} [throttled]\x1b[0m ${trimmed}`);
+          console.log(`  ${pc.yellow(`${time} [throttled]`)} ${trimmed}`);
         } else {
           lastEventTs = now;
-          console.log(`  \x1b[32m${time} [event]\x1b[0m`);
+          console.log(`  ${pc.green(`${time} [event]`)}`);
           console.log(`    type:        ${plugin.event_type}`);
           console.log(`    source:      ${plugin.source}`);
           if (context.description) console.log(`    description: ${context.description}`);
@@ -397,7 +398,7 @@ export default async function plugin(args: string[]): Promise<void> {
 
   const handler = SUBCOMMANDS[sub];
   if (!handler) {
-    console.error(`Unknown subcommand: ${sub}`);
+    error(`Unknown subcommand: ${sub}`);
     printUsage();
     process.exit(1);
   }

@@ -1,3 +1,5 @@
+import { success, error, info, dim, spinner } from "../ui";
+
 const REPO = "getclockwerk/clockwerk";
 
 export default async function update(): Promise<void> {
@@ -10,7 +12,7 @@ export default async function update(): Promise<void> {
   const binaryPath = process.execPath;
 
   // Get latest version
-  process.stdout.write("Checking for updates...");
+  const spin = spinner("Checking for updates...");
   let version: string;
   try {
     const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`);
@@ -18,19 +20,20 @@ export default async function update(): Promise<void> {
     const data = (await res.json()) as { tag_name: string };
     version = data.tag_name;
   } catch {
-    console.error("\nFailed to check for updates.");
+    spin.stop();
+    error("Failed to check for updates.");
     process.exit(1);
   }
 
-  console.log(` found ${version}`);
+  spin.stop(`Found ${version}`);
 
   // Download new binary
   const url = `https://github.com/${REPO}/releases/download/${version}/${artifact}`;
-  console.log(`Downloading ${artifact}...`);
+  info(`Downloading ${artifact}...`);
 
   const res = await fetch(url, { redirect: "follow" });
   if (!res.ok) {
-    console.error(`Download failed: ${res.status} ${res.statusText}`);
+    error(`Download failed: ${res.status} ${res.statusText}`);
     process.exit(1);
   }
 
@@ -45,7 +48,7 @@ export default async function update(): Promise<void> {
     chmodSync(tmpPath, 0o755);
     renameSync(tmpPath, binaryPath);
   } catch {
-    // Probably a permissions issue — try with sudo hint
+    // Probably a permissions issue - try with sudo hint
     const { unlinkSync } = await import("node:fs");
     try {
       unlinkSync(tmpPath);
@@ -53,10 +56,10 @@ export default async function update(): Promise<void> {
       /* best effort cleanup */
     }
 
-    console.error(`\nFailed to write to ${binaryPath}`);
-    console.error("Try running: sudo clockwerk update");
+    error(`Failed to write to ${binaryPath}`);
+    dim("Try running: sudo clockwerk update");
     process.exit(1);
   }
 
-  console.log(`Updated to ${version}`);
+  success(`Updated to ${version}`);
 }

@@ -1,24 +1,38 @@
 import { isDaemonRunning } from "../daemon/server";
-import { queryDaemon } from "../daemon/client";
-import { findProjectConfig } from "@clockwerk/core";
+import {
+  queryDaemon,
+  findProjectConfig,
+  openDbReadOnly,
+  SessionMaterializer,
+  mergeSessionsDuration,
+} from "@clockwerk/core";
 import { formatDuration } from "../format";
+import { kv, heading, badge, dim, error, pc } from "../ui";
 
 export default async function status(_args: string[]): Promise<void> {
   const daemonUp = isDaemonRunning();
-  console.log(
-    `Daemon: ${daemonUp ? "\x1b[32mrunning\x1b[0m" : "\x1b[31mstopped\x1b[0m"}`,
+  kv(
+    "Daemon",
+    badge(daemonUp ? "running" : "stopped", daemonUp ? "success" : "error"),
+    0,
   );
 
-  if (!daemonUp) {
-    console.log(`\nRun 'clockwerk up' to start tracking.`);
-    return;
+  const project = findProjectConfig(process.cwd());
+  if (project) {
+    kv("Project", project.project_token, 0);
   }
 
-  const project = findProjectConfig(process.cwd());
+  if (daemonUp) {
+    await queryDaemonStatus(project?.project_token);
+  } else {
+    queryOffline(project?.project_token);
+  }
+}
+
+async function queryDaemonStatus(projectToken?: string): Promise<void> {
   const params: Record<string, unknown> = { period: "today" };
-  if (project) {
-    params.project_token = project.project_token;
-    console.log(`Project: ${project.project_token}`);
+  if (projectToken) {
+    params.project_token = projectToken;
   }
 
   try {
@@ -36,25 +50,62 @@ export default async function status(_args: string[]): Promise<void> {
     const res = await queryDaemon("sessions", params);
     const data = res.data as { sessions: unknown[]; total_seconds: number };
 
-    console.log(
-      `Today: ${formatDuration(data.total_seconds)} across ${data.sessions.length} session(s)`,
+    kv(
+      "Today",
+      `${pc.bold(formatDuration(data.total_seconds))} across ${data.sessions.length} session(s)`,
+      0,
     );
 
     const plugins = statusData.plugins ?? [];
     if (plugins.length > 0) {
-      console.log(`\nPlugins (${plugins.length}):`);
+      heading(`Plugins (${plugins.length})`);
       for (const p of plugins) {
-        const status = p.running ? "\x1b[32mrunning\x1b[0m" : "\x1b[31mstopped\x1b[0m";
-        const events = p.eventCount > 0 ? ` · ${p.eventCount} events` : "";
+        const status = badge(
+          p.running ? "running" : "stopped",
+          p.running ? "success" : "error",
+        );
+        const events = p.eventCount > 0 ? pc.dim(` · ${p.eventCount} events`) : "";
         const lastEvent = p.lastEventTs
-          ? ` · last ${formatTimeSince(p.lastEventTs)}`
+          ? pc.dim(` · last ${formatTimeSince(p.lastEventTs)}`)
           : "";
-        console.log(`  ${p.name} [${status}]${events}${lastEvent}`);
+        console.log(`  ${pc.white(p.name)} [${status}]${events}${lastEvent}`);
       }
     }
   } catch (err) {
-    console.error("Failed to query daemon:", err);
+    error(`Failed to query daemon: ${err}`);
     process.exit(1);
+  }
+}
+
+function queryOffline(projectToken?: string): void {
+  const db = openDbReadOnly();
+  if (!db) {
+    dim("\nNo local database found. Run 'clockwerk up' to start tracking.");
+    return;
+  }
+
+  try {
+    const materializer = new SessionMaterializer(db);
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const since = Math.floor(todayStart.getTime() / 1000);
+
+    const sessions = materializer.querySessions({
+      projectToken,
+      since,
+    });
+
+    const totalSeconds = mergeSessionsDuration(sessions);
+
+    kv(
+      "Today",
+      `${pc.bold(formatDuration(totalSeconds))} across ${sessions.length} session(s)`,
+      0,
+    );
+    dim("(offline - reading from local database)");
+  } finally {
+    db.close();
   }
 }
 

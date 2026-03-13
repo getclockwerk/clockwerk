@@ -7,13 +7,7 @@ import {
   closeSync,
 } from "node:fs";
 import { getDaemonLogPath } from "@clockwerk/core";
-
-// ANSI color helpers
-const DIM = "\x1b[2m";
-const RED = "\x1b[31m";
-const YELLOW = "\x1b[33m";
-const CYAN = "\x1b[36m";
-const RESET = "\x1b[0m";
+import { error, pc } from "../ui";
 
 function colorize(line: string): string {
   // Format: 2026-03-10T14:32:01.123Z INFO  [sync] Synced 3 sessions
@@ -21,11 +15,16 @@ function colorize(line: string): string {
   if (!match) return line;
 
   const [, ts, level, prefix, msg] = match;
-  const levelColor =
-    level === "ERROR" ? RED : level === "WARN" ? YELLOW : level === "DEBUG" ? DIM : "";
-  const levelReset = levelColor ? RESET : "";
+  const levelFn =
+    level === "ERROR"
+      ? pc.red
+      : level === "WARN"
+        ? pc.yellow
+        : level === "DEBUG"
+          ? pc.dim
+          : (s: string) => s;
 
-  return `${DIM}${ts}${RESET} ${levelColor}${level.padEnd(5)}${levelReset} ${CYAN}${prefix}${RESET} ${msg}`;
+  return `${pc.dim(ts)} ${levelFn(level.padEnd(5))} ${pc.cyan(prefix)} ${msg}`;
 }
 
 function tailLines(content: string, n: number): string[] {
@@ -60,11 +59,11 @@ async function followLog(logPath: string, level: string | null): Promise<void> {
     offset = statSync(logPath).size;
   }
 
-  // Poll for new content (200ms interval — responsive but light)
+  // Poll for new content (200ms interval)
   const fd = openSync(logPath, "r");
   const buf = Buffer.alloc(8192);
 
-  process.stdout.write(`${DIM}--- following ${logPath} (ctrl-c to quit) ---${RESET}\n`);
+  process.stdout.write(pc.dim(`--- following ${logPath} (ctrl-c to quit) ---`) + "\n");
 
   const poll = setInterval(() => {
     try {
@@ -110,8 +109,8 @@ export default async function logs(args: string[]): Promise<void> {
   const logPath = getDaemonLogPath();
 
   if (!existsSync(logPath)) {
-    console.error("No log file found. Is the daemon running?");
-    console.error(`Expected: ${logPath}`);
+    error("No log file found. Is the daemon running?");
+    console.error(pc.dim(`Expected: ${logPath}`));
     process.exit(1);
   }
 

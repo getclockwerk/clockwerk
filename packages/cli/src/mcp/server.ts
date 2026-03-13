@@ -1,9 +1,10 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { queryDaemon, sendEvent } from "../daemon/client";
 import { isDaemonRunning } from "../daemon/server";
 import {
+  queryDaemon,
+  sendEvent,
   findProjectConfig,
   getUserConfig,
   getProjectRegistry,
@@ -33,7 +34,7 @@ interface DaemonStatus {
   }[];
 }
 
-type Period = "today" | "week" | "month" | "all";
+type Period = "today" | "yesterday" | "week" | "month" | "all";
 
 // ---------- Helpers ----------
 
@@ -96,7 +97,8 @@ function formatSessionLine(s: Session): string {
 }
 
 function formatSessionDetail(s: Session): string {
-  let text = formatSessionLine(s);
+  let text = `[${s.id}] ${formatSessionLine(s)}`;
+  if (s.description) text += `\n  description: ${s.description}`;
   if (s.topics.length > 0) text += `\n  topics: ${s.topics.join(", ")}`;
   if (s.file_areas.length > 0) text += `\n  files: ${s.file_areas.join(", ")}`;
   if (s.commits && s.commits.length > 0) {
@@ -129,7 +131,7 @@ export async function startMcpServer(): Promise<void> {
         "Returns total duration and a breakdown by session.",
       inputSchema: {
         period: z
-          .enum(["today", "week", "month"])
+          .enum(["today", "yesterday", "week", "month"])
           .optional()
           .describe("Time period to check (default: today)"),
       },
@@ -251,7 +253,7 @@ export async function startMcpServer(): Promise<void> {
         "file areas, commits, and tools used. Use for detailed time breakdowns or generating reports.",
       inputSchema: {
         period: z
-          .enum(["today", "week", "month"])
+          .enum(["today", "yesterday", "week", "month"])
           .optional()
           .describe("Time period (default: today)"),
         limit: z.number().optional().describe("Max sessions to return (default: 10)"),
@@ -290,6 +292,73 @@ export async function startMcpServer(): Promise<void> {
         }
 
         return { content: [{ type: "text" as const, text }] };
+      } catch {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Daemon is not running. Start it with `clockwerk up`.",
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "clockwerk_update_session",
+    {
+      title: "Update Session",
+      description:
+        "Update a session's description and structured summary. Use after generating a summary to write it back to the session.",
+      inputSchema: {
+        session_id: z.string().describe("The session ID to update"),
+        description: z
+          .string()
+          .describe(
+            "Plain text description (1-2 sentences). Used as fallback when structured summary is not available.",
+          ),
+        summary: z
+          .string()
+          .describe(
+            'Structured summary as a JSON string. Must follow the schema: {"v":1,"blocks":[...]} where blocks are: ' +
+              '{"type":"text","content":"..."} for narrative paragraphs, ' +
+              '{"type":"highlights","items":["..."]} for key accomplishments, ' +
+              '{"type":"tags","items":["..."]} for inferred topic tags.',
+          ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ session_id, description, summary }) => {
+      try {
+        const res = await queryDaemon("update_session", {
+          session_id,
+          description,
+          summary,
+        });
+        const data = res.data as { ok?: boolean; error?: string };
+
+        if (data.error) {
+          return {
+            content: [{ type: "text" as const, text: data.error }],
+            isError: true,
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Session ${session_id} updated.`,
+            },
+          ],
+        };
       } catch {
         return {
           content: [
@@ -357,7 +426,7 @@ export async function startMcpServer(): Promise<void> {
     {
       title: "Project Config",
       description:
-        "Clockwerk project configuration for the current directory — token, harnesses, privacy settings",
+        "Clockwerk project configuration for the current directory — token, harnesses, watch settings",
       mimeType: "application/json",
     },
     async () => {
@@ -490,7 +559,7 @@ export async function startMcpServer(): Promise<void> {
         "Generate a formatted time report for a given period, suitable for sharing with clients or managers",
       argsSchema: {
         period: z
-          .enum(["today", "week", "month"])
+          .enum(["today", "yesterday", "week", "month"])
           .optional()
           .describe("Period to report on (default: week)"),
       },
@@ -612,6 +681,62 @@ export async function startMcpServer(): Promise<void> {
                 `Group entries by date. For each date, list the work done (derived from topics, branches, commits) ` +
                 `and the duration. Include a grand total of hours at the bottom. ` +
                 `${rateNote}\n\n` +
+                `Session data:\n${sessionsText}`,
+            },
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerPrompt(
+    "summarize",
+    {
+      title: "Summarize Sessions",
+      description:
+        "Generate descriptions for tracked sessions in a given period and save them back",
+      argsSchema: {
+        period: z
+          .enum(["today", "yesterday", "week", "month"])
+          .optional()
+          .describe("Period to summarize (default: yesterday)"),
+      },
+    },
+    async ({ period }) => {
+      const p = (period as string) ?? "yesterday";
+      const projectToken = getProjectToken();
+
+      let sessionsText: string;
+      try {
+        const queryPeriod = p === "yesterday" ? "yesterday" : p;
+        const data = await getSessions(queryPeriod as Period, projectToken);
+        sessionsText = JSON.stringify(data, null, 2);
+      } catch {
+        sessionsText = '{"error": "Could not fetch sessions - is the daemon running?"}';
+      }
+
+      return {
+        messages: [
+          {
+            role: "user" as const,
+            content: {
+              type: "text" as const,
+              text:
+                `Summarize my tracked sessions for ${p}. For each session, generate both a plain text description ` +
+                `and a structured summary. Derive everything from the session's branches, topics, commits, file areas, and tools used.\n\n` +
+                `For the **description** parameter: write 1-2 sentences of plain text describing what was worked on.\n\n` +
+                `For the **summary** parameter: provide a JSON string with this exact schema:\n` +
+                `{"v":1,"blocks":[` +
+                `{"type":"text","content":"1-2 sentence narrative of what was done"},` +
+                `{"type":"highlights","items":["key accomplishment 1","key accomplishment 2"]},` +
+                `{"type":"tags","items":["tag1","tag2"]}` +
+                `]}\n\n` +
+                `Block types:\n` +
+                `- "text": A narrative paragraph (required, always include one)\n` +
+                `- "highlights": Bullet-point list of key changes or accomplishments (include when there are distinct items to list)\n` +
+                `- "tags": Short topic tags inferred from the work, e.g. "auth", "refactor", "api", "bugfix" (include when tags can be inferred)\n\n` +
+                `Use the clockwerk_update_session tool to save both the description and summary to each session. ` +
+                `Skip sessions that already have a description.\n\n` +
                 `Session data:\n${sessionsText}`,
             },
           },

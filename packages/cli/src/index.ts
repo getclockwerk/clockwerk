@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import pc from "picocolors";
+
 const command = process.argv[2];
 const args = process.argv.slice(3);
 
@@ -14,43 +16,54 @@ const COMMANDS: Record<string, () => Promise<void>> = {
   link: () => import("./commands/link").then((m) => m.default()),
   config: () => import("./commands/config").then((m) => m.default(args)),
   hook: () => import("./commands/hook").then((m) => m.default(args)),
+  list: () => import("./commands/list").then((m) => m.default(args)),
   log: () => import("./commands/log").then((m) => m.default(args)),
   mcp: () => import("./commands/mcp").then((m) => m.default(args)),
   plugin: () => import("./commands/plugin").then((m) => m.default(args)),
   export: () => import("./commands/export").then((m) => m.default(args)),
-  "sync-reset": () => import("./commands/sync-reset").then((m) => m.default()),
+  sync: () => import("./commands/sync").then((m) => m.default(args)),
+  studio: () => import("./commands/studio").then((m) => m.default(args)),
   update: () => import("./commands/update").then((m) => m.default()),
   help: () => printHelp(),
 };
 
 async function printHelp(): Promise<void> {
+  const d = pc.dim;
+  const b = pc.bold;
+
   console.log(`
-clockwerk — AI-native time tracking
+${b("clockwerk")} ${d("- AI-native time tracking")}
 
-Usage: clockwerk <command> [options]
+${d("Usage:")} clockwerk <command> [options]
 
-Commands:
-  login             Authenticate with getclockwerk.com
-  logout            Log out and remove saved credentials
-  up                Start the daemon
-  down              Stop the daemon
-  logs              Show daemon logs (-f to follow, -n <lines>, --level <level>)
-  status            Show tracking status
-  init [token]      Initialize project in current directory
-  link              Link local project to cloud dashboard
-  config            View project config
-  config privacy    Edit privacy settings interactively
-  config name <n>   Set project name
-  config set <k> <v> Set a config value (e.g. privacy.sync_paths true)
-  hook <source>     Log a hook event (used by AI tool integrations)
-  hook install      Auto-detect and install hooks for AI tools
-  hook install <id> Install hook for a specific tool (claude-code, cursor, copilot)
-  log <dur> [desc]  Manually log time (e.g. clockwerk log 2h "meeting")
-  export            Export sessions (--format csv|json, --since, --all, -o)
-  mcp serve         Start MCP server (for Claude Code, Cursor, etc.)
-  plugin            Manage custom event plugins (add, remove, list)
-  update            Update clockwerk to the latest version
-  help              Show this help message
+${b("Auth")}
+  login              ${d("Authenticate with getclockwerk.com")}
+  logout             ${d("Log out and remove saved credentials")}
+
+${b("Tracking")}
+  up                 ${d("Start the daemon")}
+  down               ${d("Stop the daemon")}
+  status             ${d("Show tracking status")}
+  init [token]       ${d("Initialize project in current directory")}
+  link               ${d("Link local project to cloud dashboard")}
+  list <period>      ${d("List sessions (today, yesterday, week, month)")}
+  log <dur> [desc]   ${d('Manually log time (e.g. clockwerk log 2h "meeting")')}
+
+${b("Data")}
+  logs               ${d("Show daemon logs (-f to follow, -n <lines>, --level)")}
+  config             ${d("View or set project config")}
+  export             ${d("Export sessions (--format csv|json, --since, --all, -o)")}
+  sync               ${d("Push sessions to the cloud (-d descriptions, -s summaries)")}
+
+${b("Integrations")}
+  hook install       ${d("Auto-detect and install hooks for AI tools")}
+  mcp serve          ${d("Start MCP server (for Claude Code, Cursor, etc.)")}
+  plugin             ${d("Manage custom event plugins (add, remove, list)")}
+  studio             ${d("Open Clockwerk Studio (local web UI)")}
+
+${b("Other")}
+  update             ${d("Update clockwerk to the latest version")}
+  help               ${d("Show this help message")}
 `);
 }
 
@@ -62,8 +75,8 @@ async function main(): Promise<void> {
 
   const handler = COMMANDS[command];
   if (!handler) {
-    console.error(`Unknown command: ${command}`);
-    console.error(`Run 'clockwerk help' for usage.`);
+    console.error(`${pc.red("✗")} Unknown command: ${command}`);
+    console.error(pc.dim("Run 'clockwerk help' for usage."));
     process.exit(1);
   }
 
@@ -71,6 +84,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error(`${pc.red("✗")} ${err}`);
   process.exit(1);
 });

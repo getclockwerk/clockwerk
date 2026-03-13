@@ -6,8 +6,9 @@ import {
   isLocalToken,
 } from "@clockwerk/core";
 import { spawn } from "node:child_process";
-import { confirm, close } from "../prompt";
+import { confirm } from "../prompt";
 import { runLinkFlow } from "./link";
+import { error, info, dim, spinner, pc } from "../ui";
 
 const DEFAULT_API_URL = "https://getclockwerk.com";
 const POLL_INTERVAL_MS = 2_000;
@@ -23,19 +24,20 @@ const MAX_POLL_ATTEMPTS = 150; // 5 minutes at 2s intervals
  * 4. If in a local-only project, offer to link it
  */
 export default async function login(_args: string[]): Promise<void> {
-  const apiUrl = DEFAULT_API_URL;
+  const apiUrl = process.env.CLOCKWERK_API_URL || DEFAULT_API_URL;
 
   const existing = getUserConfig();
   if (existing) {
-    console.log(`Already logged in as ${existing.email}.`);
-    console.log(`Run 'clockwerk logout' to switch accounts.`);
+    info(`Already logged in as ${pc.bold(existing.email)}`);
+    dim("Run 'clockwerk logout' to switch accounts.");
     return;
   }
 
   // Step 1: Request device code
-  console.log("Requesting device code...");
   let code: string;
   let verificationUrl: string;
+
+  const codeSpinner = spinner("Requesting device code");
 
   try {
     const res = await fetch(`${apiUrl}/api/v1/auth/device-code`, {
@@ -43,27 +45,32 @@ export default async function login(_args: string[]): Promise<void> {
     });
 
     if (!res.ok) {
-      console.error(`Failed to get device code: ${res.status} ${res.statusText}`);
+      codeSpinner.stop();
+      error(`Failed to get device code: ${res.status} ${res.statusText}`);
       process.exit(1);
     }
 
     const data = await res.json();
     code = data.code;
     verificationUrl = data.verification_url;
+    codeSpinner.stop("Device code received");
   } catch {
-    console.error(`Cannot reach ${apiUrl}. Is the server running?`);
+    codeSpinner.stop();
+    error(`Cannot reach ${apiUrl}. Is the server running?`);
     process.exit(1);
   }
 
   // Step 2: Open browser
   const fullUrl = `${verificationUrl}?code=${code}`;
-  console.log(`\nOpening browser to: ${fullUrl}`);
-  console.log(`If it didn't open, visit: ${fullUrl}\n`);
+  console.log();
+  info(`Opening browser to: ${pc.underline(fullUrl)}`);
+  dim("If it didn't open, visit the URL above.");
+  console.log();
 
   tryOpenBrowser(fullUrl);
 
   // Step 3: Poll for approval
-  process.stdout.write("Waiting for approval...");
+  const pollSpinner = spinner("Waiting for approval");
 
   for (let i = 0; i < MAX_POLL_ATTEMPTS; i++) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -74,12 +81,12 @@ export default async function login(_args: string[]): Promise<void> {
       });
 
       if (res.status === 202) {
-        process.stdout.write(".");
         continue;
       }
 
       if (res.status === 410) {
-        console.log("\nDevice code expired. Run 'clockwerk login' again.");
+        pollSpinner.stop();
+        error("Device code expired. Run 'clockwerk login' again.");
         process.exit(1);
       }
 
@@ -104,23 +111,21 @@ export default async function login(_args: string[]): Promise<void> {
             api_url: apiUrl,
           });
 
-          console.log(` ✓\n`);
-          console.log(`Logged in as ${email}`);
+          pollSpinner.stop(`Logged in as ${pc.bold(email)}`);
 
           // Check if current directory has a local-only project
           await maybeOfferLink(apiUrl, data.token);
 
-          close();
           return;
         }
       }
     } catch {
-      // Network error — keep polling
-      process.stdout.write(".");
+      // Network error - keep polling
     }
   }
 
-  console.log("\nTimed out waiting for approval. Run 'clockwerk login' again.");
+  pollSpinner.stop();
+  error("Timed out waiting for approval. Run 'clockwerk login' again.");
   process.exit(1);
 }
 
@@ -134,11 +139,12 @@ async function maybeOfferLink(apiUrl: string, authToken: string): Promise<void> 
   }
 
   const name = config.project_name ?? "this project";
-  console.log(`\n  "${name}" is tracking locally.`);
-  const shouldLink = await confirm("  Want to sync it to the cloud?");
+  console.log();
+  info(`"${name}" is tracking locally.`);
+  const shouldLink = await confirm("Want to sync it to the cloud?");
 
   if (!shouldLink) {
-    console.log(`\n  No problem! Run 'clockwerk link' anytime to connect later.\n`);
+    dim("No problem! Run 'clockwerk link' anytime to connect later.");
     return;
   }
 
@@ -156,6 +162,6 @@ function tryOpenBrowser(url: string): void {
       spawn("cmd", ["/c", "start", url], { detached: true, stdio: "ignore" }).unref();
     }
   } catch {
-    // Browser open failed silently — user has the URL printed
+    // Browser open failed silently - user has the URL printed
   }
 }

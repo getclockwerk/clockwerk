@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
+import { success, error, info, dim } from "../ui";
 
 const HOME = process.env.HOME ?? "~";
 
@@ -45,7 +46,7 @@ const TARGETS: McpTarget[] = [
       const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
 
       if (servers.clockwerk) {
-        console.log("    ✓ Claude Code — already installed");
+        success("Claude Code - already installed");
         return;
       }
 
@@ -57,7 +58,7 @@ const TARGETS: McpTarget[] = [
 
       config.mcpServers = servers;
       writeJson(path, config);
-      console.log("    ✓ Claude Code — added MCP server to ~/.claude.json");
+      success("Claude Code - added MCP server to ~/.claude.json");
     },
   },
   {
@@ -71,7 +72,7 @@ const TARGETS: McpTarget[] = [
       const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
 
       if (servers.clockwerk) {
-        console.log("    ✓ Cursor — already installed");
+        success("Cursor - already installed");
         return;
       }
 
@@ -82,7 +83,7 @@ const TARGETS: McpTarget[] = [
 
       config.mcpServers = servers;
       writeJson(path, config);
-      console.log("    ✓ Cursor — added MCP server to mcp.json");
+      success("Cursor - added MCP server to mcp.json");
     },
   },
 ];
@@ -94,41 +95,37 @@ export function installMcp(targetId?: string): void {
   if (targetId) {
     const target = TARGETS.find((t) => t.id === targetId);
     if (!target) {
-      console.error(`Unknown target: ${targetId}`);
-      console.error(`Available: ${ids.join(", ")}`);
+      error(`Unknown target: ${targetId}`);
+      error(`Available: ${ids.join(", ")}`);
       process.exit(1);
     }
 
-    console.log(`Installing Clockwerk MCP server for ${target.name} (binary: ${bin}):\n`);
+    info(`Installing Clockwerk MCP server for ${target.name} (binary: ${bin}):\n`);
     try {
       target.install(bin);
     } catch (err) {
-      console.error(
-        `    ! ${target.name} — failed: ${err instanceof Error ? err.message : err}`,
-      );
+      error(`${target.name} - failed: ${err instanceof Error ? err.message : err}`);
     }
   } else {
     const detected = TARGETS.filter((t) => t.detect());
 
     if (detected.length === 0) {
-      console.log("No supported AI tools detected.");
-      console.log(`Available: ${ids.join(", ")}`);
-      console.log("Install for a specific tool: clockwerk mcp install <name>");
+      info("No supported AI tools detected.");
+      info(`Available: ${ids.join(", ")}`);
+      dim("Install for a specific tool: clockwerk mcp install <name>");
       return;
     }
 
-    console.log(`Installing Clockwerk MCP server (binary: ${bin}):\n`);
+    info(`Installing Clockwerk MCP server (binary: ${bin}):\n`);
 
     for (const target of detected) {
       try {
         target.install(bin);
       } catch (err) {
-        console.error(
-          `    ! ${target.name} — failed: ${err instanceof Error ? err.message : err}`,
-        );
+        error(`${target.name} - failed: ${err instanceof Error ? err.message : err}`);
       }
     }
   }
 
-  console.log("\nDone. Restart your AI tool to connect.");
+  dim("\nDone. Restart your AI tool to connect.");
 }

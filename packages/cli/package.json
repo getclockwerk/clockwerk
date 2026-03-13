@@ -6,13 +6,17 @@
     "clockwerk": "src/index.ts"
   },
   "scripts": {
+    "test": "bun test",
     "dev": "bun run src/index.ts",
     "build": "bun build src/index.ts --compile --outfile clockwerk",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@clockwerk/core": "workspace:*",
+    "@clockwerk/studio": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "consola": "^3.4.2",
+    "picocolors": "^1.1.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {

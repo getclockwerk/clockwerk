@@ -36,6 +36,11 @@ fi
 
 DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARTIFACT}"
 
+curl -fsSL -X POST "https://getclockwerk.com/api/v1/download" \
+  -H "Content-Type: application/json" \
+  -d "{\"os\":\"$OS\",\"arch\":\"$ARCH\",\"version\":\"$VERSION\"}" \
+  >/dev/null 2>&1 || true
+
 echo "Installing clockwerk ${VERSION} (${OS}-${ARCH})..."
 
 # Download

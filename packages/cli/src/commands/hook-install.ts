@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
+import { success, error, info, dim } from "../ui";
 
 const HOME = process.env.HOME ?? "~";
 
@@ -52,7 +53,7 @@ const TARGETS: HookTarget[] = [
         );
       });
       if (alreadyInstalled) {
-        console.log(`    ✓ Claude Code — already installed`);
+        success("Claude Code - already installed");
         return;
       }
 
@@ -72,7 +73,7 @@ const TARGETS: HookTarget[] = [
 
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
-      console.log(`    ✓ Claude Code — installed PostToolUse hook`);
+      success("Claude Code - installed PostToolUse hook");
     },
   },
   {
@@ -99,7 +100,7 @@ const TARGETS: HookTarget[] = [
         (h) => typeof h.bash === "string" && h.bash.includes("clockwerk hook"),
       );
       if (alreadyInstalled) {
-        console.log(`    ✓ Cursor — already installed`);
+        success("Cursor - already installed");
         return;
       }
 
@@ -115,7 +116,7 @@ const TARGETS: HookTarget[] = [
 
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
-      console.log(`    ✓ Cursor — installed postToolUse hook`);
+      success("Cursor - installed postToolUse hook");
     },
   },
   {
@@ -142,7 +143,7 @@ const TARGETS: HookTarget[] = [
         (h) => typeof h.bash === "string" && h.bash.includes("clockwerk hook"),
       );
       if (alreadyInstalled) {
-        console.log(`    ✓ Copilot CLI — already installed`);
+        success("Copilot CLI - already installed");
         return;
       }
 
@@ -158,7 +159,7 @@ const TARGETS: HookTarget[] = [
 
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
-      console.log(`    ✓ Copilot CLI — installed postToolUse hook`);
+      success("Copilot CLI - installed postToolUse hook");
     },
   },
 ];
@@ -174,9 +175,7 @@ export function installTarget(target: HookTarget): void {
   try {
     target.install(bin);
   } catch (err) {
-    console.error(
-      `    ! ${target.name} — failed: ${err instanceof Error ? err.message : err}`,
-    );
+    error(`${target.name} - failed: ${err instanceof Error ? err.message : err}`);
   }
 }
 
@@ -187,41 +186,37 @@ export function installHooks(targetId?: string): void {
   if (targetId) {
     const target = TARGETS.find((t) => t.id === targetId);
     if (!target) {
-      console.error(`Unknown hook target: ${targetId}`);
-      console.error(`Available: ${ids.join(", ")}`);
+      error(`Unknown hook target: ${targetId}`);
+      error(`Available: ${ids.join(", ")}`);
       process.exit(1);
     }
 
-    console.log(`Installing clockwerk hook for ${target.name} (binary: ${bin}):\n`);
+    info(`Installing clockwerk hook for ${target.name} (binary: ${bin}):\n`);
     try {
       target.install(bin);
     } catch (err) {
-      console.error(
-        `  [!] ${target.name} — failed: ${err instanceof Error ? err.message : err}`,
-      );
+      error(`${target.name} - failed: ${err instanceof Error ? err.message : err}`);
     }
   } else {
     const detected = TARGETS.filter((t) => t.detect());
 
     if (detected.length === 0) {
-      console.log("No supported AI tools detected.");
-      console.log(`Available: ${ids.join(", ")}`);
-      console.log("Install a specific one: clockwerk hook install <name>");
+      info("No supported AI tools detected.");
+      dim(`Available: ${ids.join(", ")}`);
+      dim("Install a specific one: clockwerk hook install <name>");
       return;
     }
 
-    console.log(`Installing clockwerk hooks (binary: ${bin}):\n`);
+    info(`Installing clockwerk hooks (binary: ${bin}):\n`);
 
     for (const target of detected) {
       try {
         target.install(bin);
       } catch (err) {
-        console.error(
-          `  [!] ${target.name} — failed: ${err instanceof Error ? err.message : err}`,
-        );
+        error(`${target.name} - failed: ${err instanceof Error ? err.message : err}`);
       }
     }
   }
 
-  console.log(`\nDone. Run 'clockwerk up' to start tracking.`);
+  dim(`\nDone. Run 'clockwerk up' to start tracking.`);
 }

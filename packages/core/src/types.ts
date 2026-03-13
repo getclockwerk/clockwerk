@@ -48,6 +48,16 @@ export interface SessionCommit {
   ts: number;
 }
 
+export type SummaryBlock =
+  | { type: "text"; content: string }
+  | { type: "highlights"; items: string[] }
+  | { type: "tags"; items: string[] };
+
+export interface SessionSummary {
+  v: 1;
+  blocks: SummaryBlock[];
+}
+
 export interface EventTypeBreakdown {
   [eventType: string]: number;
 }
@@ -65,12 +75,20 @@ export interface Session {
   file_areas: string[];
   event_count: number;
   description?: string;
+  summary?: SessionSummary;
   commits?: SessionCommit[];
   // Enriched data for better AI categorization
   event_types?: EventTypeBreakdown;
   files_changed?: string[];
   tools_used?: string[];
   source_breakdown?: Record<string, number>;
+}
+
+/** Locally-materialized session with sync tracking fields. */
+export interface LocalSession extends Session {
+  sync_version: number;
+  synced_version: number;
+  deleted_at?: number;
 }
 
 export interface WatchConfig {
@@ -92,7 +110,6 @@ export interface ProjectConfig {
   project_name?: string;
   project_token: string;
   api_url?: string;
-  privacy: PrivacyConfig;
   harnesses: Record<string, boolean>;
   watch?: WatchConfig;
   plugins?: PluginConfig[];
@@ -105,12 +122,6 @@ export function isLocalToken(token: string): boolean {
 export interface ProjectRegistryEntry {
   project_token: string;
   directory: string;
-}
-
-export interface PrivacyConfig {
-  sync_paths: boolean;
-  sync_branches: boolean;
-  sync_descriptions: boolean;
 }
 
 export interface UserConfig {

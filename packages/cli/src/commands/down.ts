@@ -1,10 +1,11 @@
 import { readFileSync, existsSync, unlinkSync } from "node:fs";
 import { getDaemonPidPath, getDaemonSocketPath } from "@clockwerk/core";
 import { isDaemonRunning } from "../daemon/server";
+import { success, info, warn } from "../ui";
 
 export default async function down(_args: string[]): Promise<void> {
   if (!isDaemonRunning()) {
-    console.log("[clockwerk] Daemon is not running.");
+    info("Daemon is not running.");
     return;
   }
 
@@ -13,27 +14,26 @@ export default async function down(_args: string[]): Promise<void> {
 
   try {
     process.kill(pid, "SIGTERM");
-    console.log("[clockwerk] Sent shutdown signal to daemon.");
 
     // Wait for graceful shutdown
     let attempts = 0;
     while (attempts < 20) {
       await new Promise((r) => setTimeout(r, 100));
       if (!isDaemonRunning()) {
-        console.log("[clockwerk] Daemon stopped.");
+        success("Daemon stopped");
         return;
       }
       attempts++;
     }
 
     // Force kill if still running
-    console.log("[clockwerk] Force killing daemon...");
+    warn("Force killing daemon...");
     process.kill(pid, "SIGKILL");
   } catch {
     // Process already gone — clean up stale files
     if (existsSync(pidPath)) unlinkSync(pidPath);
     const socketPath = getDaemonSocketPath();
     if (existsSync(socketPath)) unlinkSync(socketPath);
-    console.log("[clockwerk] Daemon stopped.");
+    success("Daemon stopped");
   }
 }

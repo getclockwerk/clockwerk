@@ -29,7 +29,7 @@ clockwerk up
 
 That's it. The daemon runs in the background and sessions appear on your [dashboard](https://getclockwerk.com/dashboard) automatically.
 
-See the [full documentation](https://getclockwerk.com/docs) for setup guides, plugin configuration, privacy controls, and more.
+See the [full documentation](https://getclockwerk.com/docs) for setup guides, plugin configuration, and more.
 
 ## License
 

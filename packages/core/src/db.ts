@@ -12,6 +12,18 @@ export function getDbPath(): string {
   return DB_PATH;
 }
 
+/**
+ * Open the database in read-only mode. Useful for offline queries
+ * (e.g., `clockwerk status` when the daemon isn't running).
+ * Returns null if the database file doesn't exist.
+ */
+export function openDbReadOnly(): Database | null {
+  if (!existsSync(DB_PATH)) return null;
+  const db = new Database(DB_PATH, { readonly: true });
+  db.run("PRAGMA busy_timeout = 1000");
+  return db;
+}
+
 export function getDb(): Database {
   if (_db) return _db;
 
@@ -27,12 +39,12 @@ export function getDb(): Database {
   _db.run("PRAGMA cache_size = -8000");
   _db.run("PRAGMA busy_timeout = 3000");
 
-  migrate(_db);
+  migrateDb(_db);
 
   return _db;
 }
 
-function migrate(db: Database): void {
+export function migrateDb(db: Database): void {
   db.run(`
     CREATE TABLE IF NOT EXISTS events (
       id TEXT PRIMARY KEY,
@@ -82,14 +94,44 @@ function migrate(db: Database): void {
       issue_id TEXT,
       topics TEXT,        -- JSON array
       file_areas TEXT,    -- JSON array
-      event_count INTEGER NOT NULL,
-      description TEXT
+      event_count INTEGER NOT NULL DEFAULT 0,
+      description TEXT,
+      event_types TEXT,        -- JSON: {"tool_call": 12, "file_edit": 5}
+      files_changed TEXT,      -- JSON array
+      tools_used TEXT,         -- JSON array
+      source_breakdown TEXT,   -- JSON: {"claude-code": 40, "file-watch": 5}
+      commits TEXT,            -- JSON array of {hash, message, ts}
+      sync_version INTEGER NOT NULL DEFAULT 1,
+      synced_version INTEGER NOT NULL DEFAULT 0,
+      deleted_at INTEGER
     )
   `);
+
+  // Migrate existing sessions table to add new columns (must run before
+  // indexes that reference the new columns like sync_version)
+  migrateSessionsTable(db);
 
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_sessions_project
     ON sessions(project_token, start_ts)
+  `);
+
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_sessions_partition
+    ON sessions(project_token, branch, end_ts)
+  `);
+
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_sessions_dirty
+    ON sessions(project_token) WHERE sync_version > synced_version
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS sync_deletes (
+      session_id TEXT PRIMARY KEY,
+      project_token TEXT NOT NULL,
+      deleted_at INTEGER NOT NULL
+    )
   `);
 
   db.run(`
@@ -98,6 +140,32 @@ function migrate(db: Database): void {
       watermark INTEGER NOT NULL DEFAULT 0
     )
   `);
+}
+
+function migrateSessionsTable(db: Database): void {
+  // Check if new columns exist by inspecting table_info
+  const cols = db
+    .query<{ name: string }, []>("PRAGMA table_info(sessions)")
+    .all()
+    .map((c) => c.name);
+
+  const newColumns: [string, string][] = [
+    ["event_types", "TEXT"],
+    ["files_changed", "TEXT"],
+    ["tools_used", "TEXT"],
+    ["source_breakdown", "TEXT"],
+    ["commits", "TEXT"],
+    ["sync_version", "INTEGER NOT NULL DEFAULT 1"],
+    ["synced_version", "INTEGER NOT NULL DEFAULT 0"],
+    ["deleted_at", "INTEGER"],
+    ["summary", "TEXT"],
+  ];
+
+  for (const [name, type] of newColumns) {
+    if (!cols.includes(name)) {
+      db.run(`ALTER TABLE sessions ADD COLUMN ${name} ${type}`);
+    }
+  }
 }
 
 const insertEventStmt = `

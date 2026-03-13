@@ -18,13 +18,13 @@ import {
   getProjectRegistry,
   computeSessions,
   mergeSessionsDuration,
+  SessionMaterializer,
   createWatchersFromRegistry,
   type ClockwerkEvent,
   type DaemonMessage,
   type DaemonResponse,
 } from "@clockwerk/core";
 import { mkdirSync } from "node:fs";
-import { startSync, stopSync, resetWatermarks } from "./sync";
 import { startPluginsFromRegistry, type PluginManager } from "./plugins";
 import { initLogger, closeLogger, createLogger } from "./logger";
 
@@ -37,6 +37,7 @@ const FLUSH_BATCH_SIZE = 100;
 let eventBuffer: ClockwerkEvent[] = [];
 let running = false;
 let pluginManager: PluginManager | null = null;
+let materializer: SessionMaterializer | null = null;
 
 function flushEvents(): void {
   if (eventBuffer.length === 0) return;
@@ -47,6 +48,8 @@ function flushEvents(): void {
   try {
     const db = getDb();
     insertEvents(db, batch);
+    // Materialize events into sessions table
+    materializer?.materializeEvents(batch);
   } catch (err) {
     socketLog.error(`Failed to flush events: ${err}`);
     // Put events back in the buffer for retry
@@ -72,10 +75,20 @@ function handleQuery(method: string, params?: Record<string, unknown>): unknown 
       const now = Math.floor(Date.now() / 1000);
       let since: number;
 
+      let until: number | undefined;
+
       switch (period) {
         case "today": {
           const d = new Date();
           d.setHours(0, 0, 0, 0);
+          since = Math.floor(d.getTime() / 1000);
+          break;
+        }
+        case "yesterday": {
+          const d = new Date();
+          d.setHours(0, 0, 0, 0);
+          until = Math.floor(d.getTime() / 1000);
+          d.setDate(d.getDate() - 1);
           since = Math.floor(d.getTime() / 1000);
           break;
         }
@@ -101,8 +114,20 @@ function handleQuery(method: string, params?: Record<string, unknown>): unknown 
       }
 
       const projectToken = params?.project_token as string | undefined;
+
+      // Read from materialized sessions table
+      if (materializer) {
+        const sessions = materializer.querySessions({
+          projectToken: projectToken ?? undefined,
+          since: since || undefined,
+          until,
+        });
+        const totalSeconds = mergeSessionsDuration(sessions);
+        return { sessions, total_seconds: totalSeconds };
+      }
+
+      // Fallback to compute from events (pre-backfill)
       if (!projectToken) {
-        // Return sessions for all projects
         const tokens = db
           .query<{ project_token: string }, [number]>(
             "SELECT DISTINCT project_token FROM events WHERE timestamp >= ?",
@@ -112,7 +137,6 @@ function handleQuery(method: string, params?: Record<string, unknown>): unknown 
 
         const allSessions = tokens.flatMap((t) => computeSessions(db, t, since));
         const totalSeconds = mergeSessionsDuration(allSessions);
-
         return { sessions: allSessions, total_seconds: totalSeconds };
       }
 
@@ -121,8 +145,42 @@ function handleQuery(method: string, params?: Record<string, unknown>): unknown 
       return { sessions, total_seconds: totalSeconds };
     }
 
-    case "reset-watermarks": {
-      resetWatermarks(db);
+    case "update_session": {
+      const sessionId = params?.session_id as string | undefined;
+      if (!sessionId) return { error: "session_id is required" };
+
+      const description = params?.description as string | undefined;
+      const summary = params?.summary as string | undefined;
+
+      if (!materializer) return { error: "Materializer not initialized" };
+
+      const updated = materializer.updateSession(sessionId, { description, summary });
+      if (!updated) return { error: `Session not found: ${sessionId}` };
+
+      return { ok: true, session: updated };
+    }
+
+    case "delete_session": {
+      const sessionId = params?.session_id as string | undefined;
+      if (!sessionId) return { error: "session_id is required" };
+
+      if (!materializer) return { error: "Materializer not initialized" };
+
+      const deleted = materializer.deleteSession(sessionId);
+      if (!deleted) return { error: `Session not found: ${sessionId}` };
+
+      return { ok: true };
+    }
+
+    case "restore_session": {
+      const sessionId = params?.session_id as string | undefined;
+      if (!sessionId) return { error: "session_id is required" };
+
+      if (!materializer) return { error: "Materializer not initialized" };
+
+      const restored = materializer.restoreSession(sessionId);
+      if (!restored) return { error: `Deleted session not found: ${sessionId}` };
+
       return { ok: true };
     }
 
@@ -230,11 +288,39 @@ export function startDaemon(opts?: { foreground?: boolean }): void {
   // Initialize database
   const db = getDb();
 
+  // Initialize session materializer
+  materializer = new SessionMaterializer(db);
+
+  // Backfill sessions table from events if needed (first start after upgrade)
+  if (materializer.needsBackfill()) {
+    log.info("Backfilling sessions table from events...");
+    materializer.backfillFromEvents(computeSessions);
+    log.info("Backfill complete.");
+  }
+
   // Start flush interval
   const flushTimer = setInterval(flushEvents, FLUSH_INTERVAL_MS);
 
-  // Start cloud sync
-  startSync(db);
+  // Start periodic session merge (every 30s)
+  const mergeTimer = setInterval(() => {
+    try {
+      materializer?.mergeAdjacentSessions();
+    } catch (err) {
+      socketLog.error(`Failed to merge sessions: ${err}`);
+    }
+  }, 30_000);
+
+  // Prune old events periodically (every hour, 30+ day old events)
+  const pruneTimer = setInterval(() => {
+    try {
+      const pruned = materializer?.pruneOldEvents(30);
+      if (pruned && pruned > 0) {
+        log.info(`Pruned ${pruned} old events.`);
+      }
+    } catch (err) {
+      socketLog.error(`Failed to prune events: ${err}`);
+    }
+  }, 3_600_000);
 
   // Start file watchers for registered projects
   const registry = getProjectRegistry();
@@ -299,9 +385,16 @@ export function startDaemon(opts?: { foreground?: boolean }): void {
     log.info("Shutting down...");
 
     clearInterval(flushTimer);
+    clearInterval(mergeTimer);
+    clearInterval(pruneTimer);
+    // Final merge before shutdown
+    try {
+      materializer?.mergeAdjacentSessions();
+    } catch {
+      /* best effort */
+    }
     for (const w of watchers) w.stop();
     pluginManager?.stop();
-    stopSync();
     flushEvents(); // Final flush
     server.stop();
     closeDb();

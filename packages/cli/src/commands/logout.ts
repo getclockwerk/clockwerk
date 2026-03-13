@@ -1,11 +1,12 @@
 import { getUserConfig } from "@clockwerk/core";
 import { unlinkSync } from "node:fs";
 import { resolve } from "node:path";
+import { success, info, error } from "../ui";
 
 export default async function logout(): Promise<void> {
   const config = getUserConfig();
   if (!config) {
-    console.log("Not logged in.");
+    info("Not logged in.");
     return;
   }
 
@@ -13,8 +14,8 @@ export default async function logout(): Promise<void> {
   try {
     unlinkSync(configPath);
   } catch {
-    console.error("Failed to remove config file.");
+    error("Failed to remove config file.");
     process.exit(1);
   }
-  console.log(`Logged out (was ${config.email}).`);
+  success(`Logged out (was ${config.email})`);
 }

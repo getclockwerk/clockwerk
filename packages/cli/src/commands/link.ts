@@ -6,8 +6,9 @@ import {
   registerProject,
   isLocalToken,
 } from "@clockwerk/core";
-import { confirm, choose, close } from "../prompt";
+import { choose } from "../prompt";
 import { resolve } from "node:path";
+import { success, error, info, dim } from "../ui";
 
 interface CloudProject {
   id: string;
@@ -27,25 +28,24 @@ export default async function link(): Promise<void> {
 
   const userConfig = getUserConfig();
   if (!userConfig) {
-    console.error("Not logged in. Run 'clockwerk login' first.");
+    error("Not logged in. Run 'clockwerk login' first.");
     process.exit(1);
   }
 
   const configPath = findProjectConfigPath(cwd);
   const config = findProjectConfig(cwd);
   if (!config || !configPath) {
-    console.error("No .clockwerk config found. Run 'clockwerk init' first.");
+    error("No .clockwerk config found. Run 'clockwerk init' first.");
     process.exit(1);
   }
 
   if (!isLocalToken(config.project_token)) {
-    console.log(`Already linked to cloud project (token: ${config.project_token}).`);
-    console.log(`Remove .clockwerk and re-init to change.`);
+    info(`Already linked to cloud project (token: ${config.project_token})`);
+    dim("Remove .clockwerk and re-init to change.");
     return;
   }
 
   await runLinkFlow(configPath, config, userConfig.api_url, userConfig.token);
-  close();
 }
 
 export async function runLinkFlow(
@@ -80,19 +80,19 @@ export async function runLinkFlow(
       orgs = data.orgs ?? [];
     }
   } catch {
-    console.error("Could not reach the Clockwerk API. Try again later.");
+    error("Could not reach the Clockwerk API. Try again later.");
     process.exit(1);
   }
 
   if (orgs.length === 0) {
-    console.error("No organizations found. Something went wrong with your account.");
+    error("No organizations found. Something went wrong with your account.");
     process.exit(1);
   }
 
   // Build options: "Create new" + existing projects
   const options = [`Create new project "${projectName}"`, ...projects.map((p) => p.name)];
 
-  const choice = await choose("  Select a cloud project:", options);
+  const choice = await choose("Select a cloud project:", options);
 
   let cloudToken: string;
 
@@ -103,7 +103,7 @@ export async function runLinkFlow(
       orgId = orgs[0].id;
     } else {
       const orgChoice = await choose(
-        "  Which organization?",
+        "Which organization?",
         orgs.map((o) => o.name),
       );
       orgId = orgs[orgChoice].id;
@@ -121,40 +121,29 @@ export async function runLinkFlow(
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        console.error(`Failed to create project: ${err.error ?? res.statusText}`);
+        error(`Failed to create project: ${err.error ?? res.statusText}`);
         process.exit(1);
       }
 
       const data = await res.json();
       cloudToken = data.project.token;
-      console.log(`\n  ✓ Created cloud project "${projectName}"`);
+      success(`Created cloud project "${projectName}"`);
     } catch {
-      console.error("Failed to create project. Try again later.");
+      error("Failed to create project. Try again later.");
       process.exit(1);
     }
   } else {
     // Use existing project
     cloudToken = projects[choice - 1].token;
-    console.log(`\n  ✓ Linked to "${projects[choice - 1].name}"`);
+    success(`Linked to "${projects[choice - 1].name}"`);
   }
-
-  // Ask privacy preferences
-  console.log("\n  What should we sync to the dashboard?\n");
-  const syncPaths = await confirm("    File paths", false);
-  const syncBranches = await confirm("    Branch names", false);
-  const syncDescriptions = await confirm("    Tool descriptions", false);
 
   // Update config
   config.project_token = cloudToken;
   config.api_url = apiUrl;
-  config.privacy = {
-    sync_paths: syncPaths,
-    sync_branches: syncBranches,
-    sync_descriptions: syncDescriptions,
-  };
 
   saveProjectConfig(projectDir, config);
   registerProject({ project_token: cloudToken, directory: projectDir });
 
-  console.log(`\n  ✓ Config updated. Sessions will sync on the next daemon cycle.\n`);
+  success("Config updated. Sessions will sync on the next daemon cycle.");
 }
