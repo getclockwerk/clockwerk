@@ -12,16 +12,6 @@ export interface HookTarget {
   install: (bin: string) => void;
 }
 
-function getClockwerkBin(): string {
-  // If running as a compiled binary, use the binary path
-  // Otherwise fall back to "clockwerk" and assume it's in PATH
-  const execPath = process.execPath;
-  if (execPath.endsWith("clockwerk") || execPath.includes("clockwerk")) {
-    return execPath;
-  }
-  return "clockwerk";
-}
-
 const TARGETS: HookTarget[] = [
   {
     id: "claude-code",
@@ -171,7 +161,7 @@ export function detectTargets(): HookTarget[] {
 
 /** Install a single hook target */
 export function installTarget(target: HookTarget): void {
-  const bin = getClockwerkBin();
+  const bin = "clockwerk";
   try {
     target.install(bin);
   } catch (err) {
@@ -180,7 +170,7 @@ export function installTarget(target: HookTarget): void {
 }
 
 export function installHooks(targetId?: string): void {
-  const bin = getClockwerkBin();
+  const bin = "clockwerk";
   const ids = TARGETS.map((t) => t.id);
 
   if (targetId) {

@@ -1,8 +1,10 @@
 import { resolve, join } from "node:path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import type { ProjectConfig, ProjectRegistryEntry, UserConfig } from "./types";
 
 const CLOCKWERK_DIR = resolve(process.env.HOME ?? "~", ".clockwerk");
+const DEVICE_ID_PATH = resolve(CLOCKWERK_DIR, "device-id");
 const USER_CONFIG_PATH = resolve(CLOCKWERK_DIR, "config.json");
 const PROJECT_CONFIG_FILE = ".clockwerk";
 
@@ -20,6 +22,18 @@ export function getDaemonPidPath(): string {
 
 export function getDaemonLogPath(): string {
   return resolve(CLOCKWERK_DIR, "daemon.log");
+}
+
+export function getDeviceId(): string {
+  if (existsSync(DEVICE_ID_PATH)) {
+    return readFileSync(DEVICE_ID_PATH, "utf-8").trim();
+  }
+  if (!existsSync(CLOCKWERK_DIR)) {
+    mkdirSync(CLOCKWERK_DIR, { recursive: true, mode: 0o700 });
+  }
+  const id = randomUUID();
+  writeFileSync(DEVICE_ID_PATH, id + "\n", { mode: 0o600 });
+  return id;
 }
 
 // --- User config (from `clockwerk login`) ---

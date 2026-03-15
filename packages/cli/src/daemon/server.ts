@@ -94,7 +94,11 @@ function handleQuery(method: string, params?: Record<string, unknown>): unknown 
         }
         case "week": {
           const d = new Date();
-          d.setDate(d.getDate() - d.getDay() + 1); // Monday
+          const day = d.getDay();
+          // getDay(): 0=Sun, 1=Mon, ..., 6=Sat
+          // Go back to Monday: Mon=0, Tue=1, ..., Sun=6
+          const daysSinceMonday = day === 0 ? 6 : day - 1;
+          d.setDate(d.getDate() - daysSinceMonday);
           d.setHours(0, 0, 0, 0);
           since = Math.floor(d.getTime() / 1000);
           break;

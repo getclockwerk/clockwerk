@@ -501,11 +501,13 @@ export class SessionMaterializer {
     if (updates.description !== undefined) {
       setClauses.push("description = ?");
       params.push(updates.description || null);
+      setClauses.push("description_synced = 0");
     }
 
     if (updates.summary !== undefined) {
       setClauses.push("summary = ?");
       params.push(updates.summary || null);
+      setClauses.push("summary_synced = 0");
     }
 
     if (setClauses.length === 0) return rowToSession(existing);

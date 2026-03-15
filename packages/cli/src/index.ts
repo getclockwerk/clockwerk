@@ -21,9 +21,10 @@ const COMMANDS: Record<string, () => Promise<void>> = {
   mcp: () => import("./commands/mcp").then((m) => m.default(args)),
   plugin: () => import("./commands/plugin").then((m) => m.default(args)),
   export: () => import("./commands/export").then((m) => m.default(args)),
+  push: () => import("./commands/push").then((m) => m.default(args)),
+  pull: () => import("./commands/pull").then((m) => m.default(args)),
   sync: () => import("./commands/sync").then((m) => m.default(args)),
   studio: () => import("./commands/studio").then((m) => m.default(args)),
-  update: () => import("./commands/update").then((m) => m.default()),
   help: () => printHelp(),
 };
 
@@ -53,7 +54,9 @@ ${b("Data")}
   logs               ${d("Show daemon logs (-f to follow, -n <lines>, --level)")}
   config             ${d("View or set project config")}
   export             ${d("Export sessions (--format csv|json, --since, --all, -o)")}
-  sync               ${d("Push sessions to the cloud (-d descriptions, -s summaries)")}
+  push               ${d("Push local sessions to the cloud (-d descriptions, -s summaries)")}
+  pull               ${d("Pull sessions from other devices (Pro)")}
+  sync               ${d("Pull + push (shorthand for both)")}
 
 ${b("Integrations")}
   hook install       ${d("Auto-detect and install hooks for AI tools")}
@@ -62,7 +65,6 @@ ${b("Integrations")}
   studio             ${d("Open Clockwerk Studio (local web UI)")}
 
 ${b("Other")}
-  update             ${d("Update clockwerk to the latest version")}
   help               ${d("Show this help message")}
 `);
 }

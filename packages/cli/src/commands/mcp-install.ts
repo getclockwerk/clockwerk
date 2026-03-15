@@ -12,14 +12,6 @@ interface McpTarget {
   install: (bin: string) => void;
 }
 
-function getClockwerkBin(): string {
-  const execPath = process.execPath;
-  if (execPath.endsWith("clockwerk") || execPath.includes("clockwerk")) {
-    return execPath;
-  }
-  return "clockwerk";
-}
-
 function readJson(path: string): Record<string, unknown> {
   if (!existsSync(path)) return {};
   try {
@@ -89,7 +81,7 @@ const TARGETS: McpTarget[] = [
 ];
 
 export function installMcp(targetId?: string): void {
-  const bin = getClockwerkBin();
+  const bin = "clockwerk";
   const ids = TARGETS.map((t) => t.id);
 
   if (targetId) {

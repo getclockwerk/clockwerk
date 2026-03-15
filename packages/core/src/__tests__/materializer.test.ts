@@ -49,8 +49,8 @@ describe("SessionMaterializer", () => {
       const event1 = createEvent({ timestamp: 1700000000 });
       // Session 1 gets min-duration padded to end_ts = 1700000060
       // Materializer extends if end_ts >= event.timestamp - SESSION_GAP
-      // So event2 must be > end_ts + SESSION_GAP = 1700000060 + 300 = 1700000360
-      const event2 = createEvent({ timestamp: 1700000361 });
+      // So event2 must be > end_ts + SESSION_GAP
+      const event2 = createEvent({ timestamp: 1700000060 + SESSION_GAP + 1 });
 
       mat.materializeEvents([event1]);
       mat.materializeEvents([event2]);
@@ -134,12 +134,13 @@ describe("SessionMaterializer", () => {
     test("does not merge sessions beyond SESSION_GAP", () => {
       const { db, mat } = createMaterializer();
       // Directly insert two sessions with gap > SESSION_GAP
+      const s2Start = 1700000200 + SESSION_GAP + 1;
       db.run(
         `INSERT INTO sessions (id, project_token, start_ts, end_ts, duration_seconds, source, event_count, sync_version, synced_version)
          VALUES ('s1', 'proj_test_123', 1700000000, 1700000200, 200, 'claude-code', 2, 1, 0),
-                ('s2', 'proj_test_123', 1700000501, 1700000700, 199, 'claude-code', 2, 1, 0)`,
+                ('s2', 'proj_test_123', ${s2Start}, ${s2Start + 200}, 200, 'claude-code', 2, 1, 0)`,
       );
-      // gap = 501 - 200 = 301 > SESSION_GAP(300)
+      // gap = s2Start - 200 = SESSION_GAP + 1 > SESSION_GAP
 
       mat.mergeAdjacentSessions();
 

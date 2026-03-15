@@ -103,7 +103,8 @@ export function migrateDb(db: Database): void {
       commits TEXT,            -- JSON array of {hash, message, ts}
       sync_version INTEGER NOT NULL DEFAULT 1,
       synced_version INTEGER NOT NULL DEFAULT 0,
-      deleted_at INTEGER
+      deleted_at INTEGER,
+      device_id TEXT
     )
   `);
 
@@ -137,9 +138,23 @@ export function migrateDb(db: Database): void {
   db.run(`
     CREATE TABLE IF NOT EXISTS sync_state (
       project_token TEXT PRIMARY KEY,
-      watermark INTEGER NOT NULL DEFAULT 0
+      watermark INTEGER NOT NULL DEFAULT 0,
+      pull_watermark INTEGER NOT NULL DEFAULT 0
     )
   `);
+
+  migrateSyncStateTable(db);
+}
+
+function migrateSyncStateTable(db: Database): void {
+  const cols = db
+    .query<{ name: string }, []>("PRAGMA table_info(sync_state)")
+    .all()
+    .map((c) => c.name);
+
+  if (!cols.includes("pull_watermark")) {
+    db.run("ALTER TABLE sync_state ADD COLUMN pull_watermark INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 function migrateSessionsTable(db: Database): void {
@@ -159,6 +174,9 @@ function migrateSessionsTable(db: Database): void {
     ["synced_version", "INTEGER NOT NULL DEFAULT 0"],
     ["deleted_at", "INTEGER"],
     ["summary", "TEXT"],
+    ["description_synced", "INTEGER NOT NULL DEFAULT 0"],
+    ["summary_synced", "INTEGER NOT NULL DEFAULT 0"],
+    ["device_id", "TEXT"],
   ];
 
   for (const [name, type] of newColumns) {

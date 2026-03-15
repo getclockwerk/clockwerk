@@ -77,10 +77,10 @@ export function spinner(msg: string): { stop: (finalMsg?: string) => void } {
       if (!running) return;
       running = false;
       clearInterval(interval);
+      // Clear the entire spinner line before writing
+      process.stdout.write("\r" + " ".repeat(msg.length + 4) + "\r");
       if (finalMsg) {
-        process.stdout.write(`\r${pc.green("✓")} ${finalMsg}\n`);
-      } else {
-        process.stdout.write("\r" + " ".repeat(msg.length + 4) + "\r");
+        process.stdout.write(`${pc.green("✓")} ${finalMsg}\n`);
       }
     },
   };

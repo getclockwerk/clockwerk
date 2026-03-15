@@ -606,14 +606,20 @@ export async function startMcpServer(): Promise<void> {
       const projectToken = getProjectToken();
 
       let todayText: string;
+      let yesterdayText: string;
       let weekText: string;
       try {
-        const today = await getSessions("today", projectToken);
-        const week = await getSessions("week", projectToken);
+        const [today, yesterday, week] = await Promise.all([
+          getSessions("today", projectToken),
+          getSessions("yesterday", projectToken),
+          getSessions("week", projectToken),
+        ]);
         todayText = JSON.stringify(today, null, 2);
+        yesterdayText = JSON.stringify(yesterday, null, 2);
         weekText = JSON.stringify(week, null, 2);
       } catch {
         todayText = '{"error": "Could not fetch sessions"}';
+        yesterdayText = todayText;
         weekText = todayText;
       }
 
@@ -631,8 +637,9 @@ export async function startMcpServer(): Promise<void> {
                 `- **Blockers**: any (say "none" if unclear)\n\n` +
                 `Derive the content from branches, topics, commits, and file areas. ` +
                 `Keep it brief and actionable.\n\n` +
+                `Yesterday's sessions:\n${yesterdayText}\n\n` +
                 `Today's sessions:\n${todayText}\n\n` +
-                `This week's sessions (for context):\n${weekText}`,
+                `This week's sessions (for broader context):\n${weekText}`,
             },
           },
         ],

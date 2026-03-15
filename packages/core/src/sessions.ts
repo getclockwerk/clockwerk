@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Session } from "./types";
 
-export const SESSION_GAP = 300; // 5 minutes in seconds
+export const SESSION_GAP = 1500; // 25 minutes in seconds
 const SESSION_MIN = 60; // minimum session duration in seconds
 
 const TEMP_EXTENSIONS = [".tmp", ".temp", ".swp", ".swo", ".bak", ".orig"];
