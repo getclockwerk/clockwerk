@@ -20,6 +20,16 @@ const SKIP_UPDATE_COMMANDS = new Set([
   "mcp",
 ]);
 
+function isNewer(a: string, b: string): boolean {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) > (pb[i] ?? 0)) return true;
+    if ((pa[i] ?? 0) < (pb[i] ?? 0)) return false;
+  }
+  return false;
+}
+
 async function checkForUpdate(): Promise<void> {
   if (VERSION === "dev") return;
 
@@ -51,7 +61,7 @@ async function checkForUpdate(): Promise<void> {
       }
     }
 
-    if (latest && latest !== VERSION) {
+    if (latest && latest !== VERSION && isNewer(latest, VERSION)) {
       console.error(
         `\n${pc.yellow("!")} Update available: ${pc.dim(VERSION)} -> ${pc.bold(latest)}`,
       );
