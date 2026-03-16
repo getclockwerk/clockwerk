@@ -17,7 +17,7 @@ export default async function up(_args: string[]): Promise<void> {
     return;
   }
 
-  // Spawn daemon in background — re-exec the current entry point
+  // Spawn daemon in background - re-exec the current entry point
   // When running from source (bun run index.ts), argv[1] is the script path.
   // When running as a compiled binary, argv[1] is the first CLI arg (e.g. "up").
   const scriptPath = process.argv[1];

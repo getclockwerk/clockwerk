@@ -1,4 +1,5 @@
 import { resolve, basename } from "node:path";
+import { existsSync, readFileSync, appendFileSync } from "node:fs";
 import {
   saveProjectConfig,
   findProjectConfig,
@@ -70,6 +71,20 @@ export default async function init(args: string[]): Promise<void> {
   saveProjectConfig(cwd, config);
   registerProject({ project_token: token, directory: cwd });
 
+  const gitignorePath = resolve(cwd, ".gitignore");
+  try {
+    const content = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf-8") : "";
+    if (!content.split("\n").some((line) => line.trim() === ".clockwerk")) {
+      const prefix = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
+      appendFileSync(gitignorePath, `${prefix}.clockwerk\n`);
+      console.log(`[clockwerk] Added .clockwerk to .gitignore`);
+    }
+  } catch {
+    console.warn(
+      "[clockwerk] Could not update .gitignore - please add .clockwerk manually",
+    );
+  }
+
   console.log();
   success("Created .clockwerk config");
   console.log();
@@ -127,6 +142,20 @@ async function initWithCloudToken(cwd: string, token: string): Promise<void> {
 
   saveProjectConfig(cwd, config);
   registerProject({ project_token: token, directory: cwd });
+
+  const gitignorePath = resolve(cwd, ".gitignore");
+  try {
+    const content = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf-8") : "";
+    if (!content.split("\n").some((line) => line.trim() === ".clockwerk")) {
+      const prefix = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
+      appendFileSync(gitignorePath, `${prefix}.clockwerk\n`);
+      console.log(`[clockwerk] Added .clockwerk to .gitignore`);
+    }
+  } catch {
+    console.warn(
+      "[clockwerk] Could not update .gitignore - please add .clockwerk manually",
+    );
+  }
 
   success(`Initialized project (token: ${token})`);
   dim(`Config written to ${resolve(cwd, ".clockwerk")}`);

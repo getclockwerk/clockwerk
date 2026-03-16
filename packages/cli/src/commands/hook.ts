@@ -19,7 +19,7 @@ import {
 } from "./hook-parsers";
 
 /**
- * Hook command — called by AI tool integrations.
+ * Hook command - called by AI tool integrations.
  *
  * Input varies by source:
  * - claude-code: reads JSON from stdin (PostToolUse hook)
@@ -51,7 +51,6 @@ export default async function hook(args: string[]): Promise<void> {
 
   const projectRoot = findProjectRoot(cwd);
 
-  // Parse the harness-specific input and build a ClockwerkEvent
   let event: ClockwerkEvent;
 
   switch (source) {
@@ -65,31 +64,26 @@ export default async function hook(args: string[]): Promise<void> {
       event = parseCopilotHook(input, projectConfig.project_token, projectRoot);
       break;
     default:
-      // Generic: expect a JSON object with at least event_type
       event = parseGenericHook(input, source, projectConfig.project_token);
       break;
   }
 
-  // Cross-project resolution: if the file path belongs to a different
-  // registered project, override token, file_path, branch, and issue_id.
   const absoluteFilePath = extractAbsoluteFilePath(input);
   if (absoluteFilePath) {
     const registry = getProjectRegistry();
     const match = resolveProjectFromPath(absoluteFilePath, registry);
     if (match && match.project_token !== event.project_token) {
       event.project_token = match.project_token;
-      // Re-relativize file_path to the matched project root
       if (event.context.file_path) {
         event.context.file_path = pathRelative(match.directory, absoluteFilePath);
       }
-      // Re-resolve branch and issue_id from the matched project
       const { branch, issueId } = extractGitInfo(match.directory);
       event.context.branch = branch;
       event.context.issue_id = issueId;
     }
   }
 
-  // Skip if daemon isn't running — events are only accepted when the user
+  // Skip if daemon isn't running - events are only accepted when the user
   // has explicitly started the daemon with `clockwerk up`.
   if (!isDaemonRunning()) return;
 

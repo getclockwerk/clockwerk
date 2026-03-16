@@ -15,7 +15,6 @@ export default async function down(_args: string[]): Promise<void> {
   try {
     process.kill(pid, "SIGTERM");
 
-    // Wait for graceful shutdown
     let attempts = 0;
     while (attempts < 20) {
       await new Promise((r) => setTimeout(r, 100));
@@ -26,11 +25,10 @@ export default async function down(_args: string[]): Promise<void> {
       attempts++;
     }
 
-    // Force kill if still running
     warn("Force killing daemon...");
     process.kill(pid, "SIGKILL");
   } catch {
-    // Process already gone — clean up stale files
+    // Process already gone - clean up stale files
     if (existsSync(pidPath)) unlinkSync(pidPath);
     const socketPath = getDaemonSocketPath();
     if (existsSync(socketPath)) unlinkSync(socketPath);

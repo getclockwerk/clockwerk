@@ -205,7 +205,6 @@ export class FileWatcher {
 
     if (files.length === 0) return;
 
-    // Derive topic from most common top-level directory
     const areaCounts = new Map<string, number>();
     for (const f of files) {
       const parts = f.split("/");
@@ -221,7 +220,6 @@ export class FileWatcher {
       }
     }
 
-    // Get current branch
     let branch: string | undefined;
     try {
       const result = Bun.spawnSync([
@@ -237,7 +235,6 @@ export class FileWatcher {
       // Not a git repo
     }
 
-    // Extract issue ID from branch
     let issueId: string | undefined;
     if (branch) {
       const match = branch.match(/[A-Z]+-\d+/i);
@@ -265,12 +262,10 @@ export class FileWatcher {
   private shouldIgnore(filename: string): boolean {
     const parts = filename.split("/");
 
-    // Check built-in directory exclusions
     for (const part of parts) {
       if (BUILTIN_EXCLUDE.includes(part)) return true;
     }
 
-    // Check built-in extension exclusions
     for (const ext of BUILTIN_EXCLUDE_EXTENSIONS) {
       if (filename.endsWith(ext)) return true;
     }
@@ -293,7 +288,6 @@ export class FileWatcher {
       if (matchSimpleGlob(filename, pattern)) return true;
     }
 
-    // Check .gitignore patterns
     for (const pattern of this.gitignorePatterns) {
       if (matchSimpleGlob(filename, pattern)) return true;
     }

@@ -36,8 +36,6 @@ export function getDeviceId(): string {
   return id;
 }
 
-// --- User config (from `clockwerk login`) ---
-
 export function getUserConfig(): UserConfig | null {
   if (!existsSync(USER_CONFIG_PATH)) return null;
   try {
@@ -55,8 +53,6 @@ export function saveUserConfig(config: UserConfig): void {
     mode: 0o600,
   });
 }
-
-// --- Project config (from `clockwerk init`) ---
 
 /**
  * Walk up from `startDir` to find the nearest .clockwerk config file.
@@ -103,8 +99,6 @@ export function saveProjectConfig(dir: string, config: ProjectConfig): void {
   const configPath = join(dir, PROJECT_CONFIG_FILE);
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 }
-
-// --- Project registry (tracks all initialized project directories) ---
 
 const REGISTRY_PATH = resolve(CLOCKWERK_DIR, "projects.json");
 

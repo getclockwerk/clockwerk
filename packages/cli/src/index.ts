@@ -1,6 +1,66 @@
 #!/usr/bin/env bun
 
 import pc from "picocolors";
+import { resolve } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+
+declare const __CLOCKWERK_VERSION__: string | undefined;
+
+const VERSION =
+  typeof __CLOCKWERK_VERSION__ !== "undefined" ? __CLOCKWERK_VERSION__ : "dev";
+
+const CHECK_INTERVAL = 86400_000; // 24 hours
+const SKIP_UPDATE_COMMANDS = new Set([
+  "version",
+  "--version",
+  "-v",
+  "help",
+  "--help",
+  "-h",
+  "mcp",
+]);
+
+async function checkForUpdate(): Promise<void> {
+  if (VERSION === "dev") return;
+
+  try {
+    const dir = resolve(process.env.HOME ?? "~", ".clockwerk");
+    const cachePath = resolve(dir, "update-check.json");
+
+    // Read cache
+    let cache: { latest?: string; checkedAt?: number } = {};
+    try {
+      cache = JSON.parse(readFileSync(cachePath, "utf-8"));
+    } catch {
+      // No cache file yet
+    }
+
+    const now = Date.now();
+    let latest = cache.latest;
+
+    // Fetch if cache is stale
+    if (!cache.checkedAt || now - cache.checkedAt > CHECK_INTERVAL) {
+      const res = await fetch("https://registry.npmjs.org/@getclockwerk/cli/latest", {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { version?: string };
+        latest = data.version;
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(cachePath, JSON.stringify({ latest, checkedAt: now }));
+      }
+    }
+
+    if (latest && latest !== VERSION) {
+      console.error(
+        `\n${pc.yellow("!")} Update available: ${pc.dim(VERSION)} -> ${pc.bold(latest)}`,
+      );
+      console.error(pc.dim("  Run: bun add -g @getclockwerk/cli@latest"));
+    }
+  } catch {
+    // Never fail the command over an update check
+  }
+}
 
 const command = process.argv[2];
 const args = process.argv.slice(3);
@@ -33,7 +93,7 @@ async function printHelp(): Promise<void> {
   const b = pc.bold;
 
   console.log(`
-${b("clockwerk")} ${d("- AI-native time tracking")}
+${b("clockwerk")} ${d(`v${VERSION} - local work history engine`)}
 
 ${d("Usage:")} clockwerk <command> [options]
 
@@ -75,6 +135,11 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  if (command === "version" || command === "--version" || command === "-v") {
+    console.log(VERSION);
+    process.exit(0);
+  }
+
   const handler = COMMANDS[command];
   if (!handler) {
     console.error(`${pc.red("✗")} Unknown command: ${command}`);
@@ -83,6 +148,10 @@ async function main(): Promise<void> {
   }
 
   await handler();
+
+  if (!SKIP_UPDATE_COMMANDS.has(command)) {
+    await checkForUpdate();
+  }
 }
 
 main().catch((err) => {

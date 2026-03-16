@@ -32,12 +32,6 @@ Everything stays local. Cloud sync is optional and only sends timestamps, durati
 ## Install
 
 ```sh
-curl -fsSL https://getclockwerk.com/install.sh | sh
-```
-
-Or with a package manager:
-
-```sh
 bun add -g @getclockwerk/cli     # bun
 npm install -g @getclockwerk/cli  # npm
 ```

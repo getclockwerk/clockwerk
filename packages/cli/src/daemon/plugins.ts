@@ -294,7 +294,7 @@ export class PluginManager {
 
       try {
         const watcher = watch(configPath, () => {
-          // Debounce — editors often write multiple times
+          // Debounce - editors often write multiple times
           if (debounce) clearTimeout(debounce);
           debounce = setTimeout(() => {
             debounce = null;
@@ -327,9 +327,6 @@ export class PluginManager {
     }
   }
 }
-
-// Simpler approach: just track the dir on each PluginProcess via a wrapper
-// Actually, let's extend PluginProcess to expose projectDir
 
 export function startPluginsFromRegistry(
   registry: Array<{ project_token: string; directory: string }>,

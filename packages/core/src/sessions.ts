@@ -37,7 +37,7 @@ interface EventRow {
 /**
  * Compute sessions from raw events.
  *
- * Ported from tt's compute_sessions_sql() — same algorithm:
+ * Ported from tt's compute_sessions_sql() - same algorithm:
  * 1. Partition events by harness_session_id (or project:branch fallback)
  * 2. Detect gaps > 5 minutes between consecutive events
  * 3. Group consecutive events between gaps into sessions
@@ -60,7 +60,6 @@ export function computeSessions(
 
   if (events.length === 0) return [];
 
-  // Group events by partition key
   const partitions = new Map<string, EventRow[]>();
   for (const event of events) {
     const key = `${event.project_token}:${event.branch ?? "default"}`;
@@ -72,7 +71,6 @@ export function computeSessions(
     }
   }
 
-  // Compute sessions per partition
   const sessions: Session[] = [];
 
   for (const [partitionKey, partEvents] of partitions) {
@@ -83,7 +81,6 @@ export function computeSessions(
       const gap = partEvents[i].timestamp - partEvents[i - 1].timestamp;
 
       if (gap > SESSION_GAP) {
-        // Gap detected — flush current session
         sessions.push(buildSession(partitionKey, sessionStart, sessionEvents));
         sessionStart = partEvents[i].timestamp;
         sessionEvents = [partEvents[i]];
@@ -92,11 +89,9 @@ export function computeSessions(
       }
     }
 
-    // Flush last session
     sessions.push(buildSession(partitionKey, sessionStart, sessionEvents));
   }
 
-  // Sort by start time
   sessions.sort((a, b) => a.start_ts - b.start_ts);
 
   return sessions;
@@ -110,12 +105,10 @@ function buildSession(
   const lastEvent = events[events.length - 1];
   let endTs = lastEvent.timestamp;
 
-  // Enforce minimum duration
   if (endTs - startTs < SESSION_MIN) {
     endTs = startTs + SESSION_MIN;
   }
 
-  // Aggregate sources — pick the most common one + breakdown
   const sourceCounts = new Map<string, number>();
   for (const e of events) {
     sourceCounts.set(e.source, (sourceCounts.get(e.source) ?? 0) + 1);
@@ -129,19 +122,16 @@ function buildSession(
     }
   }
 
-  // Event type breakdown
   const eventTypeCounts: Record<string, number> = {};
   for (const e of events) {
     eventTypeCounts[e.event_type] = (eventTypeCounts[e.event_type] ?? 0) + 1;
   }
 
-  // Aggregate topics
   const topicSet = new Set<string>();
   for (const e of events) {
     if (e.topic) topicSet.add(e.topic);
   }
 
-  // Collect individual file paths, filtering out temp/transient files
   const fileSet = new Set<string>();
   for (const e of events) {
     if (!e.file_path) continue;
@@ -152,7 +142,6 @@ function buildSession(
     }
   }
 
-  // Aggregate file areas (top-level directory from file paths)
   const areaSet = new Set<string>();
   for (const fp of fileSet) {
     const parts = fp.split("/");
@@ -160,17 +149,14 @@ function buildSession(
     if (area) areaSet.add(area);
   }
 
-  // Collect tool names
   const toolSet = new Set<string>();
   for (const e of events) {
     if (e.tool_name) toolSet.add(e.tool_name);
   }
 
-  // Use first non-null issue_id and branch
   const issueId = events.find((e) => e.issue_id)?.issue_id ?? undefined;
   const branch = events.find((e) => e.branch)?.branch ?? undefined;
 
-  // Source breakdown only if multiple sources
   const sourceBreakdown =
     sourceCounts.size > 1 ? Object.fromEntries(sourceCounts) : undefined;
 
@@ -209,17 +195,14 @@ export function mergeSessionsDuration(sessions: Session[]): number {
   for (let i = 1; i < sorted.length; i++) {
     const s = sorted[i];
     if (s.start_ts <= curEnd) {
-      // Overlapping — extend
       if (s.end_ts > curEnd) curEnd = s.end_ts;
     } else {
-      // Gap — flush
       total += curEnd - curStart;
       curStart = s.start_ts;
       curEnd = s.end_ts;
     }
   }
 
-  // Flush last interval
   total += curEnd - curStart;
 
   return total;

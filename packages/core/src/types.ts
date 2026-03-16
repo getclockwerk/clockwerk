@@ -77,7 +77,6 @@ export interface Session {
   description?: string;
   summary?: SessionSummary;
   commits?: SessionCommit[];
-  // Enriched data for better AI categorization
   event_types?: EventTypeBreakdown;
   files_changed?: string[];
   tools_used?: string[];

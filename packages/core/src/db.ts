@@ -33,7 +33,6 @@ export function getDb(): Database {
 
   _db = new Database(DB_PATH, { create: true });
 
-  // Performance pragmas
   _db.run("PRAGMA journal_mode = WAL");
   _db.run("PRAGMA synchronous = NORMAL");
   _db.run("PRAGMA cache_size = -8000");

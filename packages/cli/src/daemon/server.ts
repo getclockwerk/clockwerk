@@ -5,9 +5,9 @@ import {
   openSync,
   writeSync,
   closeSync,
-  chmodSync,
   constants,
 } from "node:fs";
+import { umask } from "node:process";
 import {
   getDb,
   insertEvents,
@@ -193,7 +193,25 @@ function handleQuery(method: string, params?: Record<string, unknown>): unknown 
   }
 }
 
+const MAX_MESSAGE_SIZE = 64 * 1024; // 64 KB
+
+function validateEvent(data: unknown): data is ClockwerkEvent {
+  if (typeof data !== "object" || data === null) return false;
+  const e = data as Record<string, unknown>;
+  if (typeof e.id !== "string") return false;
+  if (typeof e.timestamp !== "number") return false;
+  const now = Math.floor(Date.now() / 1000);
+  if (e.timestamp < now - 86400 || e.timestamp > now + 3600) return false;
+  if (typeof e.event_type !== "string") return false;
+  if (typeof e.source !== "string") return false;
+  if (typeof e.project_token !== "string") return false;
+  if (typeof e.context !== "object" || e.context === null) return false;
+  return true;
+}
+
 function handleMessage(raw: string): string | null {
+  if (raw.length > MAX_MESSAGE_SIZE) return null;
+
   let msg: DaemonMessage;
   try {
     msg = JSON.parse(raw);
@@ -202,6 +220,7 @@ function handleMessage(raw: string): string | null {
   }
 
   if (msg.type === "event") {
+    if (!validateEvent(msg.data)) return null;
     eventBuffer.push(msg.data);
     if (eventBuffer.length >= FLUSH_BATCH_SIZE) {
       flushEvents();
@@ -350,7 +369,8 @@ export function startDaemon(opts?: { foreground?: boolean }): void {
     },
   });
 
-  // Start Unix socket server (restrict to owner-only after creation)
+  // Start Unix socket server (restrict to owner-only via umask)
+  const prevUmask = umask(0o177);
   const server = Bun.listen({
     unix: socketPath,
     socket: {
@@ -374,9 +394,7 @@ export function startDaemon(opts?: { foreground?: boolean }): void {
       },
     },
   });
-
-  // Restrict socket to owner-only access
-  chmodSync(socketPath, 0o600);
+  umask(prevUmask);
 
   running = true;
   log.info(`Daemon started (pid: ${process.pid})`);
@@ -425,7 +443,7 @@ export function isDaemonRunning(): boolean {
     process.kill(pid, 0);
     return true;
   } catch {
-    // Stale PID file — clean up
+    // Stale PID file - clean up
     if (existsSync(pidPath)) unlinkSync(pidPath);
     return false;
   }

@@ -159,7 +159,6 @@ async function add(args: string[]): Promise<void> {
 
   if (!config.plugins) config.plugins = [];
 
-  // Check for duplicate
   const existing = config.plugins.find((p) => p.name === name);
   if (existing) {
     error(`Plugin "${name}" already exists. Remove it first to reconfigure.`);

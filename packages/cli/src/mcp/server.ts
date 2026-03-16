@@ -90,7 +90,7 @@ function formatSessionLine(s: Session): string {
   const end = formatTime(s.end_ts);
   const dur = formatDuration(s.duration_seconds);
 
-  let line = `${date} ${start}–${end}  ${dur}  [${s.source}]`;
+  let line = `${date} ${start}-${end}  ${dur}  [${s.source}]`;
   if (s.issue_id) line += `  ${s.issue_id}`;
   if (s.branch) line += `  (${s.branch})`;
   return line;
@@ -127,7 +127,7 @@ export async function startMcpServer(): Promise<void> {
     {
       title: "Time Tracking Status",
       description:
-        "Show time tracking summary — how much time has been logged today, this week, or this month. " +
+        "Show time tracking summary - how much time has been logged today, this week, or this month. " +
         "Returns total duration and a breakdown by session.",
       inputSchema: {
         period: z
@@ -157,7 +157,7 @@ export async function startMcpServer(): Promise<void> {
           for (const s of data.sessions) {
             text += `\n  ${formatSessionLine(s)}`;
             if (s.topics.length > 0) {
-              text += ` — ${s.topics.slice(0, 3).join(", ")}`;
+              text += ` - ${s.topics.slice(0, 3).join(", ")}`;
             }
           }
         }
@@ -249,7 +249,7 @@ export async function startMcpServer(): Promise<void> {
     {
       title: "List Sessions",
       description:
-        "List tracked sessions with full details — timestamps, branches, issues, topics, " +
+        "List tracked sessions with full details - timestamps, branches, issues, topics, " +
         "file areas, commits, and tools used. Use for detailed time breakdowns or generating reports.",
       inputSchema: {
         period: z
@@ -382,7 +382,7 @@ export async function startMcpServer(): Promise<void> {
     {
       title: "Daemon Status",
       description:
-        "Current Clockwerk daemon status — running state, PID, plugins, buffered events",
+        "Current Clockwerk daemon status - running state, PID, plugins, buffered events",
       mimeType: "application/json",
     },
     async () => {
@@ -426,7 +426,7 @@ export async function startMcpServer(): Promise<void> {
     {
       title: "Project Config",
       description:
-        "Clockwerk project configuration for the current directory — token, harnesses, watch settings",
+        "Clockwerk project configuration for the current directory - token, harnesses, watch settings",
       mimeType: "application/json",
     },
     async () => {
@@ -450,7 +450,7 @@ export async function startMcpServer(): Promise<void> {
     "clockwerk://user",
     {
       title: "User Config",
-      description: "Clockwerk user authentication state — logged-in email and API URL",
+      description: "Clockwerk user authentication state - logged-in email and API URL",
       mimeType: "application/json",
     },
     async () => {
@@ -573,7 +573,7 @@ export async function startMcpServer(): Promise<void> {
         const data = await getSessions(p, projectToken);
         sessionsText = JSON.stringify(data, null, 2);
       } catch {
-        sessionsText = '{"error": "Could not fetch sessions — is the daemon running?"}';
+        sessionsText = '{"error": "Could not fetch sessions - is the daemon running?"}';
       }
 
       return {
@@ -675,7 +675,7 @@ export async function startMcpServer(): Promise<void> {
 
       const rateNote = rate
         ? `The hourly rate is ${rate}. Calculate and include the total amount.`
-        : "Do not include monetary amounts — just list the hours.";
+        : "Do not include monetary amounts - just list the hours.";
 
       return {
         messages: [

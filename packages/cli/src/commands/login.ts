@@ -93,7 +93,6 @@ export default async function login(_args: string[]): Promise<void> {
       if (res.ok) {
         const data = await res.json();
         if (data.status === "approved" && data.token) {
-          // Fetch user info
           const userRes = await fetch(`${apiUrl}/api/v1/auth/me`, {
             headers: { Authorization: `Bearer ${data.token}` },
           });
