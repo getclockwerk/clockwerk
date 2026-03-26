@@ -373,6 +373,108 @@ export async function startMcpServer(): Promise<void> {
     },
   );
 
+  server.registerTool(
+    "clockwerk_link_issue",
+    {
+      title: "Link Issue",
+      description:
+        "Link the current git branch to an issue (e.g. Linear, GitHub). " +
+        "Associates all tracked time on this branch with the specified issue ID. " +
+        "Also retroactively updates existing sessions on this branch that have no issue linked.",
+      inputSchema: {
+        issue_id: z.string().describe('Issue identifier, e.g. "ENG-123"'),
+        issue_title: z.string().optional().describe("Human-readable issue title"),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ issue_id, issue_title }) => {
+      const project = findProjectConfig(process.cwd());
+      if (!project) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Not in a tracked project. Run `clockwerk init` first.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      let branch: string;
+      try {
+        const { execSync } = await import("node:child_process");
+        branch = execSync("git rev-parse --abbrev-ref HEAD", {
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+        }).trim();
+        if (branch === "HEAD") {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: "Detached HEAD state. Switch to a branch first.",
+              },
+            ],
+            isError: true,
+          };
+        }
+      } catch {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Could not detect git branch.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      try {
+        const res = await queryDaemon("link_issue", {
+          project_token: project.project_token,
+          branch,
+          issue_id,
+          issue_title,
+        });
+        const data = res.data as {
+          ok?: boolean;
+          error?: string;
+          updated_sessions?: number;
+        };
+
+        if (data.error) {
+          return {
+            content: [{ type: "text" as const, text: data.error }],
+            isError: true,
+          };
+        }
+
+        const parts = [`Linked branch "${branch}" to ${issue_id}`];
+        if (data.updated_sessions && data.updated_sessions > 0) {
+          parts.push(`updated ${data.updated_sessions} existing session(s)`);
+        }
+        return { content: [{ type: "text" as const, text: parts.join(", ") }] };
+      } catch {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Daemon is not running. Start it with `clockwerk up`.",
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
   // ==================== RESOURCES ====================
 
   // Static resource: current daemon status

@@ -93,6 +93,7 @@ const COMMANDS: Record<string, () => Promise<void>> = {
   export: () => import("./commands/export").then((m) => m.default(args)),
   push: () => import("./commands/push").then((m) => m.default(args)),
   pull: () => import("./commands/pull").then((m) => m.default(args)),
+  issue: () => import("./commands/issue").then((m) => m.default(args)),
   sync: () => import("./commands/sync").then((m) => m.default(args)),
   studio: () => import("./commands/studio").then((m) => m.default(args)),
   help: () => printHelp(),
@@ -119,6 +120,7 @@ ${b("Tracking")}
   link               ${d("Link local project to cloud dashboard")}
   list <period>      ${d("List sessions (today, yesterday, week, month)")}
   log <dur> [desc]   ${d('Manually log time (e.g. clockwerk log 2h "meeting")')}
+  issue              ${d("Link current branch to an issue (link, unlink, show)")}
 
 ${b("Data")}
   logs               ${d("Show daemon logs (-f to follow, -n <lines>, --level)")}

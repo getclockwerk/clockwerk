@@ -142,6 +142,17 @@ export function migrateDb(db: Database): void {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS branch_links (
+      project_token TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      issue_id TEXT NOT NULL,
+      issue_title TEXT,
+      linked_at INTEGER NOT NULL,
+      PRIMARY KEY (project_token, branch)
+    )
+  `);
+
   migrateSyncStateTable(db);
 }
 
@@ -176,6 +187,7 @@ function migrateSessionsTable(db: Database): void {
     ["description_synced", "INTEGER NOT NULL DEFAULT 0"],
     ["summary_synced", "INTEGER NOT NULL DEFAULT 0"],
     ["device_id", "TEXT"],
+    ["issue_title", "TEXT"],
   ];
 
   for (const [name, type] of newColumns) {

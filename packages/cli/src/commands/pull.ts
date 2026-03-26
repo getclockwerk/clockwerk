@@ -16,6 +16,8 @@ interface PullEntry {
   source: string | null;
   description: string | null;
   summary: string | null;
+  issue_id: string | null;
+  issue_title: string | null;
   device_id: string;
 }
 
@@ -90,8 +92,8 @@ export default async function pull(_args: string[]): Promise<void> {
       const upsertStmt = db.prepare(`
         INSERT INTO sessions
           (id, project_token, start_ts, end_ts, duration_seconds, source,
-           description, summary, sync_version, synced_version, device_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           description, summary, issue_id, issue_title, sync_version, synced_version, device_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           start_ts = excluded.start_ts,
           end_ts = excluded.end_ts,
@@ -99,6 +101,8 @@ export default async function pull(_args: string[]): Promise<void> {
           source = excluded.source,
           description = excluded.description,
           summary = excluded.summary,
+          issue_id = excluded.issue_id,
+          issue_title = excluded.issue_title,
           sync_version = excluded.sync_version,
           synced_version = excluded.synced_version
         WHERE excluded.sync_version > sessions.sync_version
@@ -115,8 +119,10 @@ export default async function pull(_args: string[]): Promise<void> {
             entry.source,
             entry.description,
             entry.summary,
-            entry.version, // sync_version = server's clientVersion
-            entry.version, // synced_version = same (already synced, don't re-push)
+            entry.issue_id,
+            entry.issue_title,
+            entry.version,
+            entry.version,
             entry.device_id,
           );
         }

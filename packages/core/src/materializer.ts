@@ -25,6 +25,7 @@ interface SessionRow {
   source: string;
   branch: string | null;
   issue_id: string | null;
+  issue_title: string | null;
   topics: string | null;
   file_areas: string | null;
   event_count: number;
@@ -68,6 +69,7 @@ function rowToSession(row: SessionRow): LocalSession {
     source: row.source,
     branch: row.branch ?? undefined,
     issue_id: row.issue_id ?? undefined,
+    issue_title: row.issue_title ?? undefined,
     topics: parseJsonArray(row.topics),
     file_areas: parseJsonArray(row.file_areas),
     event_count: row.event_count,
@@ -206,14 +208,28 @@ export class SessionMaterializer {
       }
     }
 
-    // Merge issue_id and branch (keep first non-null)
-    const issueId = session.issue_id ?? event.context.issue_id ?? null;
     const newBranch = session.branch ?? event.context.branch ?? null;
+    let issueId = session.issue_id ?? event.context.issue_id ?? null;
+    let issueTitle: string | null = session.issue_title ?? null;
+
+    // Fallback: look up branch_links if still no issue_id
+    if (!issueId && newBranch) {
+      const link = this.db
+        .query<
+          { issue_id: string; issue_title: string | null },
+          [string, string]
+        >("SELECT issue_id, issue_title FROM branch_links WHERE project_token = ? AND branch = ?")
+        .get(event.project_token, newBranch);
+      if (link) {
+        issueId = link.issue_id;
+        issueTitle = link.issue_title;
+      }
+    }
 
     this.db.run(
       `UPDATE sessions SET
         start_ts = ?, end_ts = ?, duration_seconds = ?,
-        source = ?, branch = ?, issue_id = ?,
+        source = ?, branch = ?, issue_id = ?, issue_title = ?,
         topics = ?, file_areas = ?, event_count = ?,
         event_types = ?, files_changed = ?, tools_used = ?,
         source_breakdown = ?,
@@ -226,6 +242,7 @@ export class SessionMaterializer {
         primarySource,
         newBranch,
         issueId,
+        issueTitle,
         topics.size > 0 ? JSON.stringify([...topics]) : null,
         areas.size > 0 ? JSON.stringify([...areas]) : null,
         newEventCount,
@@ -271,13 +288,30 @@ export class SessionMaterializer {
 
     const eventTypes: Record<string, number> = { [event.event_type]: 1 };
 
+    const branch = event.context.branch ?? null;
+    let issueId = event.context.issue_id ?? null;
+    let issueTitle: string | null = null;
+
+    if (!issueId && branch) {
+      const link = this.db
+        .query<
+          { issue_id: string; issue_title: string | null },
+          [string, string]
+        >("SELECT issue_id, issue_title FROM branch_links WHERE project_token = ? AND branch = ?")
+        .get(event.project_token, branch);
+      if (link) {
+        issueId = link.issue_id;
+        issueTitle = link.issue_title;
+      }
+    }
+
     this.db.run(
       `INSERT INTO sessions
         (id, project_token, start_ts, end_ts, duration_seconds, source,
-         branch, issue_id, topics, file_areas, event_count, description,
+         branch, issue_id, issue_title, topics, file_areas, event_count, description,
          event_types, files_changed, tools_used, source_breakdown, commits,
          sync_version, synced_version, deleted_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, NULL)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, NULL)`,
       [
         id,
         event.project_token,
@@ -285,8 +319,9 @@ export class SessionMaterializer {
         endTs,
         endTs - startTs,
         event.source,
-        event.context.branch ?? null,
-        event.context.issue_id ?? null,
+        branch,
+        issueId,
+        issueTitle,
         topics.length > 0 ? JSON.stringify(topics) : null,
         areas.size > 0 ? JSON.stringify([...areas]) : null,
         1, // event_count

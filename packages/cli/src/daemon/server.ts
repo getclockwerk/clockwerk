@@ -188,6 +188,36 @@ function handleQuery(method: string, params?: Record<string, unknown>): unknown 
       return { ok: true };
     }
 
+    case "link_issue": {
+      const projectToken = params?.project_token as string | undefined;
+      const branch = params?.branch as string | undefined;
+      const issueId = params?.issue_id as string | undefined;
+      const issueTitle = (params?.issue_title as string | undefined) ?? null;
+
+      if (!projectToken || !branch || !issueId) {
+        return { error: "project_token, branch, and issue_id are required" };
+      }
+
+      db.run(
+        `INSERT INTO branch_links (project_token, branch, issue_id, issue_title, linked_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(project_token, branch) DO UPDATE SET
+           issue_id = excluded.issue_id,
+           issue_title = excluded.issue_title,
+           linked_at = excluded.linked_at`,
+        [projectToken, branch, issueId, issueTitle, Math.floor(Date.now() / 1000)],
+      );
+
+      const result = db.run(
+        `UPDATE sessions
+         SET issue_id = ?, issue_title = ?, sync_version = sync_version + 1
+         WHERE project_token = ? AND branch = ? AND issue_id IS NULL AND deleted_at IS NULL`,
+        [issueId, issueTitle, projectToken, branch],
+      );
+
+      return { ok: true, updated_sessions: result.changes };
+    }
+
     default:
       return { error: `Unknown method: ${method}` };
   }

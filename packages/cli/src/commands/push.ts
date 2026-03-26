@@ -21,6 +21,8 @@ interface SyncEntry {
   source?: string;
   description?: string;
   summary?: string;
+  issue_id?: string;
+  issue_title?: string;
 }
 
 interface SyncResult {
@@ -241,10 +243,12 @@ export default async function push(args: string[]): Promise<void> {
           source: string;
           description: string | null;
           summary: string | null;
+          issue_id: string | null;
+          issue_title: string | null;
         },
         [string, string]
       >(
-        `SELECT id, sync_version, start_ts, end_ts, duration_seconds, source, description, summary
+        `SELECT id, sync_version, start_ts, end_ts, duration_seconds, source, description, summary, issue_id, issue_title
          FROM sessions
          WHERE project_token = ?
            AND sync_version > synced_version
@@ -275,6 +279,8 @@ export default async function push(args: string[]): Promise<void> {
       source: s.source,
       ...(includeDescriptions && s.description ? { description: s.description } : {}),
       ...(includeSummaries && s.summary ? { summary: s.summary } : {}),
+      ...(s.issue_id ? { issue_id: s.issue_id } : {}),
+      ...(s.issue_title ? { issue_title: s.issue_title } : {}),
     }));
 
     try {

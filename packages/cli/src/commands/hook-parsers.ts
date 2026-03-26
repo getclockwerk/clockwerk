@@ -1,4 +1,11 @@
+import { isValidSource } from "@clockwerk/core";
 import type { ClockwerkEvent, EventType, Source } from "@clockwerk/core";
+
+function getSourceOverride(): string | null {
+  const envSource = process.env.CLOCKWERK_SOURCE;
+  if (envSource && isValidSource(envSource)) return envSource;
+  return null;
+}
 
 /**
  * Extract an absolute file path from the raw hook JSON input.
@@ -100,7 +107,7 @@ export function parseClaudeCodeHook(
     id: crypto.randomUUID(),
     timestamp: Math.floor(Date.now() / 1000),
     event_type: "tool_call" as EventType,
-    source: "claude-code",
+    source: getSourceOverride() ?? "claude-code",
     project_token: projectToken,
     context: {
       tool_name: toolName,
@@ -167,7 +174,7 @@ export function parseCursorHook(
     id: crypto.randomUUID(),
     timestamp: Math.floor(Date.now() / 1000),
     event_type: "tool_call",
-    source: "cursor",
+    source: getSourceOverride() ?? "cursor",
     project_token: projectToken,
     context: {
       tool_name: toolName.slice(0, 64),
@@ -231,7 +238,7 @@ export function parseCopilotHook(
     id: crypto.randomUUID(),
     timestamp: Math.floor(Date.now() / 1000),
     event_type: "tool_call",
-    source: "copilot",
+    source: getSourceOverride() ?? "copilot",
     project_token: projectToken,
     context: {
       tool_name: toolName.slice(0, 64),
@@ -321,7 +328,7 @@ export function parseGenericHook(
     id: crypto.randomUUID(),
     timestamp: Math.floor(Date.now() / 1000),
     event_type: (parsed.event_type as EventType) ?? "tool_call",
-    source,
+    source: getSourceOverride() ?? source,
     project_token: projectToken,
     context: {
       tool_name: (parsed.tool_name as string)?.slice(0, 64),

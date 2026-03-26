@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   extractIssueId,
   parseToolArgs,
@@ -204,6 +204,131 @@ describe("parseCopilotHook", () => {
     const input = JSON.stringify({ toolName: "Bash" });
     const event = parseCopilotHook(input, "proj_test", null);
     expect(event.harness_session_id).toBeUndefined();
+  });
+});
+
+describe("CLOCKWERK_SOURCE env var override", () => {
+  beforeEach(() => {
+    delete process.env.CLOCKWERK_SOURCE;
+  });
+  afterEach(() => {
+    delete process.env.CLOCKWERK_SOURCE;
+  });
+
+  test("overrides source in parseClaudeCodeHook when valid", () => {
+    process.env.CLOCKWERK_SOURCE = "autonomous";
+    const event = parseClaudeCodeHook(
+      JSON.stringify({ tool_name: "Read" }),
+      "proj_test",
+      null,
+    );
+    expect(event.source).toBe("autonomous");
+  });
+
+  test("falls back to default in parseClaudeCodeHook when unset", () => {
+    const event = parseClaudeCodeHook(
+      JSON.stringify({ tool_name: "Read" }),
+      "proj_test",
+      null,
+    );
+    expect(event.source).toBe("claude-code");
+  });
+
+  test("falls back to default in parseClaudeCodeHook when invalid", () => {
+    process.env.CLOCKWERK_SOURCE = "INVALID SOURCE!";
+    const event = parseClaudeCodeHook(
+      JSON.stringify({ tool_name: "Read" }),
+      "proj_test",
+      null,
+    );
+    expect(event.source).toBe("claude-code");
+  });
+
+  test("overrides source in parseCursorHook when valid", () => {
+    process.env.CLOCKWERK_SOURCE = "autonomous";
+    const event = parseCursorHook(
+      JSON.stringify({ toolName: "Shell" }),
+      "proj_test",
+      null,
+    );
+    expect(event.source).toBe("autonomous");
+  });
+
+  test("falls back to default in parseCursorHook when unset", () => {
+    const event = parseCursorHook(
+      JSON.stringify({ toolName: "Shell" }),
+      "proj_test",
+      null,
+    );
+    expect(event.source).toBe("cursor");
+  });
+
+  test("falls back to default in parseCursorHook when invalid", () => {
+    process.env.CLOCKWERK_SOURCE = "INVALID SOURCE!";
+    const event = parseCursorHook(
+      JSON.stringify({ toolName: "Shell" }),
+      "proj_test",
+      null,
+    );
+    expect(event.source).toBe("cursor");
+  });
+
+  test("overrides source in parseCopilotHook when valid", () => {
+    process.env.CLOCKWERK_SOURCE = "autonomous";
+    const event = parseCopilotHook(
+      JSON.stringify({ toolName: "Bash" }),
+      "proj_test",
+      null,
+    );
+    expect(event.source).toBe("autonomous");
+  });
+
+  test("falls back to default in parseCopilotHook when unset", () => {
+    const event = parseCopilotHook(
+      JSON.stringify({ toolName: "Bash" }),
+      "proj_test",
+      null,
+    );
+    expect(event.source).toBe("copilot");
+  });
+
+  test("falls back to default in parseCopilotHook when invalid", () => {
+    process.env.CLOCKWERK_SOURCE = "INVALID SOURCE!";
+    const event = parseCopilotHook(
+      JSON.stringify({ toolName: "Bash" }),
+      "proj_test",
+      null,
+    );
+    expect(event.source).toBe("copilot");
+  });
+
+  test("overrides source in parseGenericHook when valid", () => {
+    process.env.CLOCKWERK_SOURCE = "autonomous";
+    const event = parseGenericHook(
+      JSON.stringify({ tool_name: "vim" }),
+      "custom-tool",
+      "proj_test",
+    );
+    expect(event.source).toBe("autonomous");
+  });
+
+  test("falls back to passed source in parseGenericHook when unset", () => {
+    const event = parseGenericHook(
+      JSON.stringify({ tool_name: "vim" }),
+      "custom-tool",
+      "proj_test",
+    );
+    expect(event.source).toBe("custom-tool");
+  });
+
+  test("falls back to passed source in parseGenericHook when invalid", () => {
+    process.env.CLOCKWERK_SOURCE = "INVALID SOURCE!";
+    const event = parseGenericHook(
+      JSON.stringify({ tool_name: "vim" }),
+      "custom-tool",
+      "proj_test",
+    );
+    expect(event.source).toBe("custom-tool");
   });
 });
 

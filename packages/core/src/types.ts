@@ -14,7 +14,8 @@ export type Source =
   | "copilot"
   | "chatgpt"
   | "manual"
-  | "file-watch";
+  | "file-watch"
+  | "autonomous";
 
 /** Slug pattern for source identifiers: lowercase alphanumeric, hyphens, colons. 2-64 chars. */
 const SOURCE_SLUG_RE = /^[a-z0-9]([a-z0-9:-]*[a-z0-9])?$/;
@@ -71,6 +72,7 @@ export interface Session {
   source: string;
   branch?: string;
   issue_id?: string;
+  issue_title?: string;
   topics: string[];
   file_areas: string[];
   event_count: number;
