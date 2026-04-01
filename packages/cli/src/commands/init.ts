@@ -1,15 +1,31 @@
 import { resolve, basename } from "node:path";
 import { existsSync, readFileSync, appendFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import {
   saveProjectConfig,
   findProjectConfig,
-  getUserConfig,
   registerProject,
   type ProjectConfig,
 } from "@clockwerk/core";
-import { ask, confirm } from "../prompt";
+import { ask } from "../prompt";
 import { detectTargets, installTarget } from "./hook-install";
-import { success, error, warn, info, dim, pc } from "../ui";
+import { success, error, info, dim, pc, spinner } from "../ui";
+import { daemon } from "../daemon/client";
+
+export function inferProjectNameFromGit(cwd: string): string | null {
+  try {
+    const url = execSync("git remote get-url origin", {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    // Extract repo name from https://github.com/user/repo.git or git@github.com:user/repo.git
+    const match = url.match(/\/([^/]+?)(?:\.git)?$/);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export default async function init(args: string[]): Promise<void> {
   const cwd = process.cwd();
@@ -17,16 +33,9 @@ export default async function init(args: string[]): Promise<void> {
   // Check if already initialized
   const existing = findProjectConfig(cwd);
   if (existing) {
-    error(`This directory is already tracked (token: ${existing.project_token})`);
+    error(`This directory is already tracked`);
     dim("Remove .clockwerk to reinitialize.");
     process.exit(1);
-  }
-
-  // If a cloud token (proj_*) is provided, use the quick (non-interactive) path
-  const firstArg = args[0];
-  if (firstArg && firstArg.startsWith("proj_")) {
-    await initWithCloudToken(cwd, firstArg);
-    return;
   }
 
   // Interactive init
@@ -34,7 +43,10 @@ export default async function init(args: string[]): Promise<void> {
     `\n  ${pc.bold("Welcome to Clockwerk!")} Let's set up time tracking for this project.\n`,
   );
 
-  const defaultName = firstArg && !firstArg.startsWith("-") ? firstArg : basename(cwd);
+  const firstArg = args[0];
+  const gitName = inferProjectNameFromGit(cwd);
+  const defaultName =
+    firstArg && !firstArg.startsWith("-") ? firstArg : (gitName ?? basename(cwd));
   const projectName =
     firstArg && !firstArg.startsWith("-")
       ? firstArg
@@ -50,22 +62,22 @@ export default async function init(args: string[]): Promise<void> {
   const config: ProjectConfig = {
     version: 1,
     project_name: projectName,
-    project_token: token,
     harnesses: {},
   };
 
-  // Detect tools and ask about hook installation
+  // Auto-detect and install hooks for all detected tools
   const detected = detectTargets();
 
   if (detected.length > 0) {
-    console.log(`\n  ${pc.bold("Detected tools:")}`);
+    console.log(`\n  ${pc.bold("Detected tools:")} Installing hooks...`);
     for (const target of detected) {
-      const shouldInstall = await confirm(`  Install hook for ${target.name}?`);
       config.harnesses[target.id] = true;
-      if (shouldInstall) {
-        installTarget(target);
-      }
+      installTarget(target);
     }
+  } else {
+    dim(
+      "\n  No supported AI tools detected. Run 'clockwerk hook install' to add hooks later.",
+    );
   }
 
   saveProjectConfig(cwd, config);
@@ -88,86 +100,20 @@ export default async function init(args: string[]): Promise<void> {
   console.log();
   success("Created .clockwerk config");
   console.log();
-  info("Tracking locally! Run 'clockwerk up' to start the daemon.");
-  dim("Tip: Run 'clockwerk login' to sync sessions to the cloud.");
-  console.log();
-}
 
-/** Quick init with a cloud project token (power-user / dashboard onboarding flow) */
-async function initWithCloudToken(cwd: string, token: string): Promise<void> {
-  const userConfig = getUserConfig();
-  const apiUrl = userConfig?.api_url ?? "https://getclockwerk.com";
-
-  // Validate token against cloud API
-  if (userConfig?.token) {
-    try {
-      const res = await fetch(
-        `${apiUrl}/api/v1/projects/validate?token=${encodeURIComponent(token)}`,
-        { headers: { Authorization: `Bearer ${userConfig.token}` } },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const name = data.project?.name ?? "Unknown";
-        const org = data.project?.org_name;
-        success(`Verified project: ${name}${org ? ` (${org})` : ""}`);
-      } else if (res.status === 404) {
-        error(`Invalid project token "${token}"`);
-        dim("Check the token in your dashboard and try again.");
-        process.exit(1);
-      } else if (res.status === 401) {
-        error("Auth expired. Run 'clockwerk login' first.");
-        process.exit(1);
-      } else {
-        warn(`Could not validate token (HTTP ${res.status}), proceeding anyway`);
-      }
-    } catch {
-      warn("Could not reach API to validate token, proceeding anyway");
-    }
+  // Start daemon automatically if not already running
+  if (daemon.isRunning()) {
+    info("Daemon already running - you're tracking!");
   } else {
-    warn("Not logged in - skipping token validation. Run 'clockwerk login' to verify.");
-  }
-
-  const config: ProjectConfig = {
-    version: 1,
-    project_token: token,
-    api_url: apiUrl,
-    harnesses: {},
-  };
-
-  // Auto-detect harnesses (silent, non-interactive)
-  const detected = detectTargets();
-  for (const target of detected) {
-    config.harnesses[target.id] = true;
-  }
-
-  saveProjectConfig(cwd, config);
-  registerProject({ project_token: token, directory: cwd });
-
-  const gitignorePath = resolve(cwd, ".gitignore");
-  try {
-    const content = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf-8") : "";
-    if (!content.split("\n").some((line) => line.trim() === ".clockwerk")) {
-      const prefix = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
-      appendFileSync(gitignorePath, `${prefix}.clockwerk\n`);
-      console.log(`[clockwerk] Added .clockwerk to .gitignore`);
+    const spin = spinner("Starting daemon");
+    const started = await daemon.ensureRunning();
+    if (started) {
+      spin.stop("Daemon started - you're tracking!");
+    } else {
+      spin.stop();
+      error("Failed to start daemon. Run 'clockwerk up' manually.");
     }
-  } catch {
-    console.warn(
-      "[clockwerk] Could not update .gitignore - please add .clockwerk manually",
-    );
   }
 
-  success(`Initialized project (token: ${token})`);
-  dim(`Config written to ${resolve(cwd, ".clockwerk")}`);
-
-  if (detected.length > 0) {
-    console.log();
-    info("Detected harnesses:");
-    for (const h of detected) {
-      console.log(`  ${pc.green("✓")} ${h.name}`);
-    }
-    dim("\nRun 'clockwerk hook install' to set up hooks.");
-  }
-
-  dim("\nRun 'clockwerk up' to start tracking.");
+  console.log();
 }

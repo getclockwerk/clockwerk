@@ -4,10 +4,9 @@ import {
   parseToolArgs,
   extractAbsoluteFilePath,
   parseClaudeCodeHook,
-  parseCursorHook,
-  parseCopilotHook,
   parseGenericHook,
 } from "../hook-parsers";
+import { parseStandardHook, getTool, registerTool } from "../hook-registry";
 
 describe("extractIssueId", () => {
   test("extracts Linear-style ABC-123", () => {
@@ -114,6 +113,13 @@ describe("extractAbsoluteFilePath", () => {
 });
 
 describe("parseClaudeCodeHook", () => {
+  beforeEach(() => {
+    delete process.env.CLOCKWERK_SOURCE;
+  });
+  afterEach(() => {
+    delete process.env.CLOCKWERK_SOURCE;
+  });
+
   test("extracts tool name and session ID", () => {
     const input = JSON.stringify({
       tool_name: "Read",
@@ -163,47 +169,120 @@ describe("parseClaudeCodeHook", () => {
   });
 });
 
-describe("parseCursorHook", () => {
+describe("parseStandardHook - cursor descriptor", () => {
+  beforeEach(() => {
+    delete process.env.CLOCKWERK_SOURCE;
+  });
+  afterEach(() => {
+    delete process.env.CLOCKWERK_SOURCE;
+  });
+
   test("extracts toolName and conversation_id", () => {
+    const cursor = getTool("cursor")!;
     const input = JSON.stringify({
       toolName: "Shell",
       conversation_id: "conv-456",
       toolArgs: JSON.stringify({ command: "git status" }),
     });
-    const event = parseCursorHook(input, "proj_test", null);
+    const event = parseStandardHook(input, cursor, "proj_test", null);
     expect(event.context.tool_name).toBe("Shell");
     expect(event.harness_session_id).toBe("conv-456");
     expect(event.source).toBe("cursor");
   });
 
   test("parses toolArgs from JSON string", () => {
+    const cursor = getTool("cursor")!;
     const input = JSON.stringify({
       toolName: "Edit",
       toolArgs: JSON.stringify({
         file_path: "/home/user/project/src/index.ts",
       }),
     });
-    const event = parseCursorHook(input, "proj_test", "/home/user/project");
+    const event = parseStandardHook(input, cursor, "proj_test", "/home/user/project");
     expect(event.context.file_path).toBe("src/index.ts");
   });
 });
 
-describe("parseCopilotHook", () => {
+describe("parseStandardHook - copilot descriptor", () => {
+  beforeEach(() => {
+    delete process.env.CLOCKWERK_SOURCE;
+  });
+  afterEach(() => {
+    delete process.env.CLOCKWERK_SOURCE;
+  });
+
   test("extracts toolName", () => {
+    const copilot = getTool("copilot")!;
     const input = JSON.stringify({
       toolName: "Read",
       toolArgs: JSON.stringify({ file_path: "/project/file.ts" }),
     });
-    const event = parseCopilotHook(input, "proj_test", "/project");
+    const event = parseStandardHook(input, copilot, "proj_test", "/project");
     expect(event.context.tool_name).toBe("Read");
     expect(event.source).toBe("copilot");
     expect(event.context.file_path).toBe("file.ts");
   });
 
   test("does not set harness_session_id", () => {
+    const copilot = getTool("copilot")!;
     const input = JSON.stringify({ toolName: "Bash" });
-    const event = parseCopilotHook(input, "proj_test", null);
+    const event = parseStandardHook(input, copilot, "proj_test", null);
     expect(event.harness_session_id).toBeUndefined();
+  });
+});
+
+describe("parseStandardHook - field map behavior", () => {
+  test("extracts from custom field names", () => {
+    const event = parseStandardHook(
+      JSON.stringify({
+        tool: "Read",
+        args: JSON.stringify({ file_path: "/project/file.ts" }),
+      }),
+      {
+        id: "zed",
+        fields: { toolName: "tool", toolArgs: "args", sessionId: "session_id" },
+      },
+      "proj_test",
+      "/project",
+    );
+    expect(event.context.tool_name).toBe("Read");
+    expect(event.context.file_path).toBe("file.ts");
+  });
+
+  test("omits harness_session_id when sessionId field is undefined", () => {
+    const event = parseStandardHook(
+      JSON.stringify({ toolName: "Bash", conversation_id: "should-be-ignored" }),
+      { id: "copilot", fields: { sessionId: undefined } },
+      "proj_test",
+      null,
+    );
+    expect(event.harness_session_id).toBeUndefined();
+  });
+
+  test("handles invalid JSON gracefully, returns event with unknown tool", () => {
+    const cursor = getTool("cursor")!;
+    const event = parseStandardHook("not json", cursor, "proj_test", null);
+    expect(event.context.tool_name).toBe("unknown");
+    expect(event.source).toBe("cursor");
+  });
+});
+
+describe("registerTool + getTool round-trip", () => {
+  test("round-trip registration and lookup", () => {
+    registerTool({
+      id: "test-tool-roundtrip",
+      name: "Test Tool",
+      detectPath: "~/.test-tool",
+      configPath: "~/.test-tool/hooks.json",
+    });
+    const found = getTool("test-tool-roundtrip");
+    expect(found).toBeDefined();
+    expect(found!.id).toBe("test-tool-roundtrip");
+    expect(found!.name).toBe("Test Tool");
+  });
+
+  test("getTool for unknown source returns undefined", () => {
+    expect(getTool("no-such-tool")).toBeUndefined();
   });
 });
 
@@ -244,58 +323,70 @@ describe("CLOCKWERK_SOURCE env var override", () => {
     expect(event.source).toBe("claude-code");
   });
 
-  test("overrides source in parseCursorHook when valid", () => {
+  test("overrides source in parseStandardHook (cursor) when valid", () => {
     process.env.CLOCKWERK_SOURCE = "autonomous";
-    const event = parseCursorHook(
+    const cursor = getTool("cursor")!;
+    const event = parseStandardHook(
       JSON.stringify({ toolName: "Shell" }),
+      cursor,
       "proj_test",
       null,
     );
     expect(event.source).toBe("autonomous");
   });
 
-  test("falls back to default in parseCursorHook when unset", () => {
-    const event = parseCursorHook(
+  test("falls back to default in parseStandardHook (cursor) when unset", () => {
+    const cursor = getTool("cursor")!;
+    const event = parseStandardHook(
       JSON.stringify({ toolName: "Shell" }),
+      cursor,
       "proj_test",
       null,
     );
     expect(event.source).toBe("cursor");
   });
 
-  test("falls back to default in parseCursorHook when invalid", () => {
+  test("falls back to default in parseStandardHook (cursor) when invalid", () => {
     process.env.CLOCKWERK_SOURCE = "INVALID SOURCE!";
-    const event = parseCursorHook(
+    const cursor = getTool("cursor")!;
+    const event = parseStandardHook(
       JSON.stringify({ toolName: "Shell" }),
+      cursor,
       "proj_test",
       null,
     );
     expect(event.source).toBe("cursor");
   });
 
-  test("overrides source in parseCopilotHook when valid", () => {
+  test("overrides source in parseStandardHook (copilot) when valid", () => {
     process.env.CLOCKWERK_SOURCE = "autonomous";
-    const event = parseCopilotHook(
+    const copilot = getTool("copilot")!;
+    const event = parseStandardHook(
       JSON.stringify({ toolName: "Bash" }),
+      copilot,
       "proj_test",
       null,
     );
     expect(event.source).toBe("autonomous");
   });
 
-  test("falls back to default in parseCopilotHook when unset", () => {
-    const event = parseCopilotHook(
+  test("falls back to default in parseStandardHook (copilot) when unset", () => {
+    const copilot = getTool("copilot")!;
+    const event = parseStandardHook(
       JSON.stringify({ toolName: "Bash" }),
+      copilot,
       "proj_test",
       null,
     );
     expect(event.source).toBe("copilot");
   });
 
-  test("falls back to default in parseCopilotHook when invalid", () => {
+  test("falls back to default in parseStandardHook (copilot) when invalid", () => {
     process.env.CLOCKWERK_SOURCE = "INVALID SOURCE!";
-    const event = parseCopilotHook(
+    const copilot = getTool("copilot")!;
+    const event = parseStandardHook(
       JSON.stringify({ toolName: "Bash" }),
+      copilot,
       "proj_test",
       null,
     );

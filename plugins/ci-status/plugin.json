@@ -1,0 +1,12 @@
+{
+  "name": "ci-status",
+  "version": "1.0.0",
+  "display_name": "CI Status",
+  "description": "Polls GitHub Actions for the latest workflow run status and reports it as activity.",
+  "author": "Clockwerk",
+  "event_type": "manual",
+  "source": "plugin:ci",
+  "command": "./plugin.sh",
+  "interval": 60,
+  "tags": ["ci", "github-actions"]
+}

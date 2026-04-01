@@ -1,0 +1,12 @@
+{
+  "name": "docker-logs",
+  "version": "1.0.0",
+  "display_name": "Docker Logs",
+  "description": "Monitors Docker container events (start, stop, restart) and reports them as activity.",
+  "author": "Clockwerk",
+  "event_type": "manual",
+  "source": "plugin:docker",
+  "command": "./plugin.sh",
+  "interval": 5,
+  "tags": ["docker", "containers"]
+}

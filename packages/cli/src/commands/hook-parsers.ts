@@ -1,7 +1,7 @@
 import { isValidSource } from "@clockwerk/core";
 import type { ClockwerkEvent, EventType, Source } from "@clockwerk/core";
 
-function getSourceOverride(): string | null {
+export function getSourceOverride(): string | null {
   const envSource = process.env.CLOCKWERK_SOURCE;
   if (envSource && isValidSource(envSource)) return envSource;
   return null;
@@ -118,135 +118,6 @@ export function parseClaudeCodeHook(
       topic: topic?.slice(0, 200),
     },
     harness_session_id: sessionId,
-  };
-}
-
-/**
- * Cursor postToolUse hook.
- *
- * Receives JSON via stdin with fields:
- *   { toolName, toolArgs, toolResult, cwd, conversation_id, ... }
- */
-export function parseCursorHook(
-  input: string,
-  projectToken: string,
-  projectRoot: string | null,
-): ClockwerkEvent {
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(input);
-  } catch {
-    parsed = {};
-  }
-
-  const toolName =
-    (parsed.toolName as string) ?? (parsed.hook_event_name as string) ?? "unknown";
-  const sessionId = parsed.conversation_id as string | undefined;
-
-  let description: string | undefined;
-  let filePath: string | undefined;
-
-  // toolArgs comes as a JSON string from Cursor
-  const toolArgs = parseToolArgs(parsed.toolArgs);
-
-  switch (toolName.toLowerCase()) {
-    case "shell":
-    case "bash":
-      description = (toolArgs.command as string) ?? (toolArgs.description as string);
-      break;
-    case "write":
-    case "read":
-    case "edit": {
-      const fp = (toolArgs.file_path as string) ?? (toolArgs.filePath as string);
-      if (fp && projectRoot) {
-        filePath = fp.startsWith(projectRoot) ? fp.slice(projectRoot.length + 1) : fp;
-      }
-      description = filePath ?? toolName;
-      break;
-    }
-    default:
-      description = toolName;
-  }
-
-  const { branch, issueId } = extractGitInfo(projectRoot);
-
-  return {
-    id: crypto.randomUUID(),
-    timestamp: Math.floor(Date.now() / 1000),
-    event_type: "tool_call",
-    source: getSourceOverride() ?? "cursor",
-    project_token: projectToken,
-    context: {
-      tool_name: toolName.slice(0, 64),
-      description: description?.slice(0, 200),
-      file_path: filePath,
-      branch,
-      issue_id: issueId,
-    },
-    harness_session_id: sessionId,
-  };
-}
-
-/**
- * GitHub Copilot CLI postToolUse hook.
- *
- * Receives JSON via stdin with fields:
- *   { toolName, toolArgs, toolResult, timestamp, cwd }
- */
-export function parseCopilotHook(
-  input: string,
-  projectToken: string,
-  projectRoot: string | null,
-): ClockwerkEvent {
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(input);
-  } catch {
-    parsed = {};
-  }
-
-  const toolName = (parsed.toolName as string) ?? "unknown";
-
-  let description: string | undefined;
-  let filePath: string | undefined;
-
-  // toolArgs comes as a JSON string from Copilot
-  const toolArgs = parseToolArgs(parsed.toolArgs);
-
-  switch (toolName.toLowerCase()) {
-    case "bash":
-    case "shell":
-      description = (toolArgs.command as string) ?? (toolArgs.description as string);
-      break;
-    case "write":
-    case "read":
-    case "edit": {
-      const fp = (toolArgs.file_path as string) ?? (toolArgs.filePath as string);
-      if (fp && projectRoot) {
-        filePath = fp.startsWith(projectRoot) ? fp.slice(projectRoot.length + 1) : fp;
-      }
-      description = filePath ?? toolName;
-      break;
-    }
-    default:
-      description = toolName;
-  }
-
-  const { branch, issueId } = extractGitInfo(projectRoot);
-
-  return {
-    id: crypto.randomUUID(),
-    timestamp: Math.floor(Date.now() / 1000),
-    event_type: "tool_call",
-    source: getSourceOverride() ?? "copilot",
-    project_token: projectToken,
-    context: {
-      tool_name: toolName.slice(0, 64),
-      description: description?.slice(0, 200),
-      file_path: filePath,
-      branch,
-      issue_id: issueId,
-    },
   };
 }
 

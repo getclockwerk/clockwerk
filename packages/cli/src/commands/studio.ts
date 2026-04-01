@@ -1,8 +1,8 @@
-import { isDaemonRunning } from "../daemon/server";
+import { daemon } from "../daemon/client";
 import { error } from "../ui";
 
 export default async function studio(args: string[]): Promise<void> {
-  if (!isDaemonRunning()) {
+  if (!daemon.isRunning()) {
     error("Daemon is not running. Start it with 'clockwerk up'.");
     process.exit(1);
   }

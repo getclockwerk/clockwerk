@@ -1,13 +1,13 @@
 import {
   openDbReadOnly,
-  SessionMaterializer,
-  findProjectConfig,
+  querySessions,
+  resolveProjectFromPath,
+  mergeSessionsDuration,
+  type Period,
   type LocalSession,
 } from "@clockwerk/core";
 import { formatDuration } from "../format";
-import { error, dim, heading, pc } from "../ui";
-
-type Period = "today" | "yesterday" | "week" | "month";
+import { error, dim, pc } from "../ui";
 
 const PERIODS: Record<string, Period> = {
   today: "today",
@@ -16,46 +16,14 @@ const PERIODS: Record<string, Period> = {
   month: "month",
 };
 
-function periodRange(period: Period): { since: number; until?: number; label: string } {
-  const now = new Date();
-  const startOfDay = new Date(now);
-  startOfDay.setHours(0, 0, 0, 0);
+const PERIOD_LABELS: Record<string, string> = {
+  today: "Today",
+  yesterday: "Yesterday",
+  week: "This week",
+  month: "This month",
+};
 
-  switch (period) {
-    case "today":
-      return {
-        since: Math.floor(startOfDay.getTime() / 1000),
-        label: "Today",
-      };
-    case "yesterday": {
-      const yesterday = new Date(startOfDay);
-      yesterday.setDate(yesterday.getDate() - 1);
-      return {
-        since: Math.floor(yesterday.getTime() / 1000),
-        until: Math.floor(startOfDay.getTime() / 1000),
-        label: "Yesterday",
-      };
-    }
-    case "week": {
-      const weekAgo = new Date(startOfDay);
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      return {
-        since: Math.floor(weekAgo.getTime() / 1000),
-        label: "This week",
-      };
-    }
-    case "month": {
-      const monthAgo = new Date(startOfDay);
-      monthAgo.setDate(monthAgo.getDate() - 30);
-      return {
-        since: Math.floor(monthAgo.getTime() / 1000),
-        label: "This month",
-      };
-    }
-  }
-}
-
-function formatTime(ts: number): string {
+export function formatTime(ts: number): string {
   const d = new Date(ts * 1000);
   return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
@@ -69,57 +37,47 @@ function formatDate(ts: number): string {
   });
 }
 
-function truncate(str: string, max: number): string {
-  if (str.length <= max) return str;
-  return str.slice(0, max - 1) + "\u2026";
+function isSingleDay(period: Period): boolean {
+  return period === "today" || period === "yesterday";
 }
 
-function renderTable(sessions: LocalSession[], label: string): void {
+function renderRow(session: LocalSession, indent: string): void {
+  const timeRange = `${formatTime(session.start_ts)} - ${formatTime(session.end_ts)}`;
+  const dur = formatDuration(session.duration_seconds);
+  console.log(`${indent}${timeRange}  ${pc.dim(session.source.padEnd(16))}${dur}`);
+}
+
+export function renderSessions(
+  sessions: LocalSession[],
+  label: string,
+  period: Period,
+): void {
   if (sessions.length === 0) {
     dim(`No sessions for ${label.toLowerCase()}.`);
     return;
   }
 
-  // Sort by start time
   const sorted = [...sessions].sort((a, b) => a.start_ts - b.start_ts);
+  const totalSeconds = mergeSessionsDuration(sorted);
 
-  // Calculate total
-  const totalSeconds = sorted.reduce((sum, s) => sum + s.duration_seconds, 0);
+  console.log(pc.bold(`${label} (${formatDuration(totalSeconds)})`));
 
-  // Column widths
-  const dateCol = 16;
-  const timeCol = 13;
-  const durCol = 8;
-
-  // Header
-  heading(label);
-  console.log(
-    `  ${pc.dim("Date".padEnd(dateCol))}${pc.dim("Time".padEnd(timeCol))}${pc.dim("Duration".padEnd(durCol))}  ${pc.dim("Description")}`,
-  );
-  console.log(pc.dim("  " + "\u2500".repeat(dateCol + timeCol + durCol + 30)));
-
-  // Group by date
-  let lastDate = "";
-
-  for (const s of sorted) {
-    const date = formatDate(s.start_ts);
-    const time = `${formatTime(s.start_ts)}-${formatTime(s.end_ts)}`;
-    const dur = formatDuration(s.duration_seconds);
-    const desc = s.description ? truncate(s.description, 40) : pc.dim("-");
-
-    const dateStr = date !== lastDate ? date : "";
-    lastDate = date;
-
-    console.log(
-      `  ${pc.white(dateStr.padEnd(dateCol))}${time.padEnd(timeCol)}${pc.bold(dur.padEnd(durCol))}  ${desc}`,
-    );
+  if (isSingleDay(period)) {
+    for (const s of sorted) {
+      renderRow(s, "  ");
+    }
+  } else {
+    let lastDate = "";
+    for (const s of sorted) {
+      const date = formatDate(s.start_ts);
+      if (date !== lastDate) {
+        if (lastDate !== "") console.log();
+        console.log(`  ${pc.dim(date)}`);
+        lastDate = date;
+      }
+      renderRow(s, "    ");
+    }
   }
-
-  // Footer
-  console.log(pc.dim("  " + "\u2500".repeat(dateCol + timeCol + durCol + 30)));
-  console.log(
-    `  ${"".padEnd(dateCol)}${"".padEnd(timeCol)}${pc.bold(pc.green(formatDuration(totalSeconds).padEnd(durCol)))}  ${pc.dim(`${sorted.length} session(s)`)}`,
-  );
   console.log();
 }
 
@@ -140,17 +98,14 @@ export default async function list(args: string[]): Promise<void> {
   }
 
   try {
-    const materializer = new SessionMaterializer(db);
-    const project = findProjectConfig(process.cwd());
-    const { since, until, label } = periodRange(period);
-
-    const sessions = materializer.querySessions({
-      projectToken: project?.project_token,
-      since,
-      until,
+    const entry = resolveProjectFromPath(process.cwd());
+    const { sessions } = querySessions(db, {
+      period,
+      projectToken: entry?.project_token,
     });
+    const label = PERIOD_LABELS[period] ?? period;
 
-    renderTable(sessions, label);
+    renderSessions(sessions, label, period);
   } finally {
     db.close();
   }

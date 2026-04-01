@@ -20,9 +20,7 @@ describe("SessionMaterializer", () => {
       const sessions = mat.querySessions();
 
       expect(sessions).toHaveLength(1);
-      expect(sessions[0].project_token).toBe("proj_test_123");
       expect(sessions[0].start_ts).toBe(1700000000);
-      expect(sessions[0].event_count).toBe(1);
       // Minimum duration enforced
       expect(sessions[0].duration_seconds).toBe(60);
       db.close();
@@ -38,7 +36,6 @@ describe("SessionMaterializer", () => {
       const sessions = mat.querySessions();
 
       expect(sessions).toHaveLength(1);
-      expect(sessions[0].event_count).toBe(2);
       expect(sessions[0].start_ts).toBe(1700000000);
       expect(sessions[0].end_ts).toBe(1700000120);
       db.close();
@@ -72,7 +69,6 @@ describe("SessionMaterializer", () => {
       const sessions = mat.querySessions();
 
       expect(sessions).toHaveLength(1);
-      expect(sessions[0].event_count).toBe(3);
       db.close();
     });
 
@@ -84,26 +80,26 @@ describe("SessionMaterializer", () => {
       db.close();
     });
 
-    test("accumulates metadata across events", () => {
+    test("session output contains minimal fields including project_token", () => {
       const { db, mat } = createMaterializer();
-      const event1 = createEvent({
-        timestamp: 1700000000,
-        context: { tool_name: "Read", file_path: "src/index.ts", topic: "setup" },
-      });
-      const event2 = createEvent({
-        timestamp: 1700000060,
-        context: { tool_name: "Edit", file_path: "src/db.ts", topic: "database" },
-      });
-
-      mat.materializeEvents([event1, event2]);
+      const event = createEvent({ timestamp: 1700000000 });
+      mat.materializeEvents([event]);
       const sessions = mat.querySessions();
 
-      expect(sessions[0].tools_used).toContain("Read");
-      expect(sessions[0].tools_used).toContain("Edit");
-      expect(sessions[0].files_changed).toContain("src/index.ts");
-      expect(sessions[0].files_changed).toContain("src/db.ts");
-      expect(sessions[0].topics).toContain("setup");
-      expect(sessions[0].topics).toContain("database");
+      expect(sessions).toHaveLength(1);
+      const session = sessions[0];
+      expect(typeof session.id).toBe("string");
+      expect(typeof session.project_token).toBe("string");
+      expect(typeof session.start_ts).toBe("number");
+      expect(typeof session.end_ts).toBe("number");
+      expect(typeof session.duration_seconds).toBe("number");
+      expect(typeof session.source).toBe("string");
+      expect(typeof session.sync_version).toBe("number");
+      expect(typeof session.synced_version).toBe("number");
+      // Removed fields should not be present
+      expect((session as unknown as Record<string, unknown>).branch).toBeUndefined();
+      expect((session as unknown as Record<string, unknown>).topics).toBeUndefined();
+      expect((session as unknown as Record<string, unknown>).event_count).toBeUndefined();
       db.close();
     });
   });
@@ -111,7 +107,6 @@ describe("SessionMaterializer", () => {
   describe("mergeAdjacentSessions", () => {
     test("merges sessions within SESSION_GAP", () => {
       const { db, mat } = createMaterializer();
-      // Session 1: event at t=0, min-padded end_ts = t+60
       // Directly insert sessions with gap exactly at SESSION_GAP boundary
       db.run(
         `INSERT INTO sessions (id, project_token, start_ts, end_ts, duration_seconds, source, event_count, sync_version, synced_version)
@@ -127,7 +122,8 @@ describe("SessionMaterializer", () => {
 
       const sessions = mat.querySessions();
       expect(sessions).toHaveLength(1);
-      expect(sessions[0].event_count).toBe(4);
+      expect(sessions[0].start_ts).toBe(1700000000);
+      expect(sessions[0].end_ts).toBe(1700000700);
       db.close();
     });
 
@@ -182,7 +178,6 @@ describe("SessionMaterializer", () => {
 
       const sessionsA = mat.querySessions({ projectToken: "proj_a" });
       expect(sessionsA).toHaveLength(1);
-      expect(sessionsA[0].project_token).toBe("proj_a");
       db.close();
     });
 
@@ -227,7 +222,6 @@ describe("SessionMaterializer", () => {
       expect(mat.hasAnySessions()).toBe(true);
       const sessions = mat.querySessions();
       expect(sessions).toHaveLength(1);
-      expect(sessions[0].event_count).toBe(3);
       db.close();
     });
   });

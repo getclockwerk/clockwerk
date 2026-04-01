@@ -43,26 +43,6 @@ export interface EventContext {
   topic?: string;
 }
 
-export interface SessionCommit {
-  hash: string;
-  message: string;
-  ts: number;
-}
-
-export type SummaryBlock =
-  | { type: "text"; content: string }
-  | { type: "highlights"; items: string[] }
-  | { type: "tags"; items: string[] };
-
-export interface SessionSummary {
-  v: 1;
-  blocks: SummaryBlock[];
-}
-
-export interface EventTypeBreakdown {
-  [eventType: string]: number;
-}
-
 export interface Session {
   id: string;
   project_token: string;
@@ -70,19 +50,6 @@ export interface Session {
   end_ts: number;
   duration_seconds: number;
   source: string;
-  branch?: string;
-  issue_id?: string;
-  issue_title?: string;
-  topics: string[];
-  file_areas: string[];
-  event_count: number;
-  description?: string;
-  summary?: SessionSummary;
-  commits?: SessionCommit[];
-  event_types?: EventTypeBreakdown;
-  files_changed?: string[];
-  tools_used?: string[];
-  source_breakdown?: Record<string, number>;
 }
 
 /** Locally-materialized session with sync tracking fields. */
@@ -109,27 +76,15 @@ export interface PluginConfig {
 export interface ProjectConfig {
   version: 1;
   project_name?: string;
-  project_token: string;
-  api_url?: string;
   harnesses: Record<string, boolean>;
+  session_gap?: number; // gap in seconds between sessions, defaults to SESSION_GAP (1500)
   watch?: WatchConfig;
-  plugins?: PluginConfig[];
-}
-
-export function isLocalToken(token: string): boolean {
-  return token.startsWith("local_");
+  plugins?: (PluginConfig | string)[];
 }
 
 export interface ProjectRegistryEntry {
   project_token: string;
   directory: string;
-}
-
-export interface UserConfig {
-  user_id: string;
-  email: string;
-  token: string;
-  api_url: string;
 }
 
 // Socket protocol messages

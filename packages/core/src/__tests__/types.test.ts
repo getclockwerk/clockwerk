@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { isValidSource, isLocalToken } from "../types";
+import { isValidSource } from "../types";
 
 describe("isValidSource", () => {
   test("accepts valid slugs", () => {
@@ -31,20 +31,5 @@ describe("isValidSource", () => {
     expect(isValidSource("dot.dot")).toBe(false);
     expect(isValidSource("-leading")).toBe(false);
     expect(isValidSource("trailing-")).toBe(false);
-  });
-});
-
-describe("isLocalToken", () => {
-  test("returns true for local_ prefix", () => {
-    expect(isLocalToken("local_abc")).toBe(true);
-    expect(isLocalToken("local_")).toBe(true);
-    expect(isLocalToken("local_123_456")).toBe(true);
-  });
-
-  test("returns false for other prefixes", () => {
-    expect(isLocalToken("proj_abc")).toBe(false);
-    expect(isLocalToken("")).toBe(false);
-    expect(isLocalToken("localish")).toBe(false);
-    expect(isLocalToken("LOCAL_abc")).toBe(false);
   });
 });

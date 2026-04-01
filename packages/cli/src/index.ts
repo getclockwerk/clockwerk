@@ -17,7 +17,6 @@ const SKIP_UPDATE_COMMANDS = new Set([
   "help",
   "--help",
   "-h",
-  "mcp",
 ]);
 
 function isNewer(a: string, b: string): boolean {
@@ -76,25 +75,17 @@ const command = process.argv[2];
 const args = process.argv.slice(3);
 
 const COMMANDS: Record<string, () => Promise<void>> = {
-  login: () => import("./commands/login").then((m) => m.default(args)),
-  logout: () => import("./commands/logout").then((m) => m.default()),
   up: () => import("./commands/up").then((m) => m.default(args)),
   down: () => import("./commands/down").then((m) => m.default(args)),
   logs: () => import("./commands/logs").then((m) => m.default(args)),
   status: () => import("./commands/status").then((m) => m.default(args)),
   init: () => import("./commands/init").then((m) => m.default(args)),
-  link: () => import("./commands/link").then((m) => m.default()),
   config: () => import("./commands/config").then((m) => m.default(args)),
   hook: () => import("./commands/hook").then((m) => m.default(args)),
   list: () => import("./commands/list").then((m) => m.default(args)),
   log: () => import("./commands/log").then((m) => m.default(args)),
-  mcp: () => import("./commands/mcp").then((m) => m.default(args)),
   plugin: () => import("./commands/plugin").then((m) => m.default(args)),
   export: () => import("./commands/export").then((m) => m.default(args)),
-  push: () => import("./commands/push").then((m) => m.default(args)),
-  pull: () => import("./commands/pull").then((m) => m.default(args)),
-  issue: () => import("./commands/issue").then((m) => m.default(args)),
-  sync: () => import("./commands/sync").then((m) => m.default(args)),
   studio: () => import("./commands/studio").then((m) => m.default(args)),
   help: () => printHelp(),
 };
@@ -108,31 +99,21 @@ ${b("clockwerk")} ${d(`v${VERSION} - local work history engine`)}
 
 ${d("Usage:")} clockwerk <command> [options]
 
-${b("Auth")}
-  login              ${d("Authenticate with getclockwerk.com")}
-  logout             ${d("Log out and remove saved credentials")}
-
 ${b("Tracking")}
   up                 ${d("Start the daemon")}
   down               ${d("Stop the daemon")}
   status             ${d("Show tracking status")}
-  init [token]       ${d("Initialize project in current directory")}
-  link               ${d("Link local project to cloud dashboard")}
+  init               ${d("Initialize project in current directory")}
   list <period>      ${d("List sessions (today, yesterday, week, month)")}
   log <dur> [desc]   ${d('Manually log time (e.g. clockwerk log 2h "meeting")')}
-  issue              ${d("Link current branch to an issue (link, unlink, show)")}
 
 ${b("Data")}
   logs               ${d("Show daemon logs (-f to follow, -n <lines>, --level)")}
   config             ${d("View or set project config")}
   export             ${d("Export sessions (--format csv|json, --since, --all, -o)")}
-  push               ${d("Push local sessions to the cloud (-d descriptions, -s summaries)")}
-  pull               ${d("Pull sessions from other devices (Pro)")}
-  sync               ${d("Pull + push (shorthand for both)")}
 
 ${b("Integrations")}
   hook install       ${d("Auto-detect and install hooks for AI tools")}
-  mcp serve          ${d("Start MCP server (for Claude Code, Cursor, etc.)")}
   plugin             ${d("Manage custom event plugins (add, remove, list)")}
   studio             ${d("Open Clockwerk Studio (local web UI)")}
 

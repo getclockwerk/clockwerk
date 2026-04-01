@@ -1,5 +1,5 @@
-import { isDaemonRunning } from "../daemon/server";
-import { queryDaemon, findProjectConfig } from "@clockwerk/core";
+import { daemon } from "../daemon/client";
+import { resolveProjectFromPath } from "@clockwerk/core";
 import type { Session } from "@clockwerk/core";
 import { formatDuration } from "../format";
 import { writeFileSync } from "node:fs";
@@ -73,10 +73,6 @@ export function sessionToCsvRow(s: Session): string {
     formatDuration(s.duration_seconds),
     s.project_token,
     s.source,
-    s.branch ?? "",
-    s.topics.join("; "),
-    s.file_areas.join("; "),
-    String(s.event_count),
   ];
 
   return fields.map(escapeCsvField).join(",");
@@ -85,17 +81,17 @@ export function sessionToCsvRow(s: Session): string {
 export default async function exportCommand(args: string[]): Promise<void> {
   const opts = parseArgs(args);
 
-  if (!isDaemonRunning()) {
+  if (!daemon.isRunning()) {
     error("Daemon is not running. Start it with 'clockwerk up'.");
     process.exit(1);
   }
 
-  const project = findProjectConfig(process.cwd());
+  const entry = resolveProjectFromPath(process.cwd());
   const sinceTs = parseSince(opts.since, opts.all);
 
   const params: Record<string, unknown> = {};
-  if (project) {
-    params.project_token = project.project_token;
+  if (entry) {
+    params.project_token = entry.project_token;
   }
 
   // Determine period for daemon query
@@ -107,8 +103,11 @@ export default async function exportCommand(args: string[]): Promise<void> {
   }
 
   try {
-    const res = await queryDaemon("sessions", params);
-    const data = res.data as { sessions: Session[]; total_seconds: number };
+    const data = await daemon.query<{ sessions: Session[]; total_seconds: number }>(
+      "sessions",
+      params,
+    );
+    if (!data) throw new Error("No data returned from daemon");
 
     let sessions = data.sessions;
 
@@ -124,8 +123,7 @@ export default async function exportCommand(args: string[]): Promise<void> {
     if (opts.format === "json") {
       output = JSON.stringify(sessions, null, 2) + "\n";
     } else {
-      const header =
-        "Date,Start,End,Duration,Project,Source,Branch,Topics,File Areas,Events";
+      const header = "Date,Start,End,Duration,Project,Source";
       const rows = sessions.map(sessionToCsvRow);
       output = [header, ...rows].join("\n") + "\n";
     }

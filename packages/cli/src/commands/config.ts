@@ -2,7 +2,7 @@ import {
   findProjectConfig,
   findProjectConfigPath,
   saveProjectConfig,
-  isLocalToken,
+  SESSION_GAP,
 } from "@clockwerk/core";
 import { resolve } from "node:path";
 import { success, error, kv, heading, dim, pc } from "../ui";
@@ -51,18 +51,12 @@ function showConfig(
   config: ReturnType<typeof findProjectConfig> & {},
   configPath: string,
 ): void {
-  const isLocal = isLocalToken(config.project_token);
-
   heading("Clockwerk project config");
   dim(configPath);
   console.log();
 
   if (config.project_name) {
     kv("Project", config.project_name);
-  }
-  kv("Token", `${config.project_token}${isLocal ? pc.dim(" (local)") : ""}`);
-  if (config.api_url) {
-    kv("API", config.api_url);
   }
 
   const harnesses = Object.entries(config.harnesses).filter(([, v]) => v);
@@ -73,6 +67,9 @@ function showConfig(
     }
   }
 
+  const sessionGap = config.session_gap ?? SESSION_GAP;
+  kv("session_gap", `${sessionGap}s`);
+
   if (config.watch) {
     heading("File watcher");
     kv("enabled", config.watch.enabled ? pc.green("on") : pc.red("off"), 4);
@@ -82,7 +79,11 @@ function showConfig(
   if (config.plugins && config.plugins.length > 0) {
     heading("Plugins");
     for (const p of config.plugins) {
-      console.log(`    ${p.name} ${pc.dim(`(${p.source})`)}`);
+      if (typeof p === "string") {
+        console.log(`    ${p} ${pc.dim("(registry)")}`);
+      } else {
+        console.log(`    ${p.name} ${pc.dim(`(${p.source})`)}`);
+      }
     }
   }
 
@@ -93,6 +94,14 @@ const VALID_KEYS: Record<
   string,
   (config: ReturnType<typeof findProjectConfig> & {}, value: string) => void
 > = {
+  session_gap: (c, v) => {
+    const n = parseInt(v, 10);
+    if (isNaN(n) || n < 1) {
+      error("session_gap must be a positive number (seconds).");
+      process.exit(1);
+    }
+    c.session_gap = n;
+  },
   "watch.enabled": (c, v) => {
     if (!c.watch) c.watch = { enabled: true, interval: 30, exclude: [] };
     c.watch.enabled = parseBool(v);

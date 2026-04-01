@@ -1,57 +1,38 @@
-import { resolve, join } from "node:path";
+import { resolve, join, isAbsolute } from "node:path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import type { ProjectConfig, ProjectRegistryEntry, UserConfig } from "./types";
+import type { ProjectConfig, ProjectRegistryEntry } from "./types";
 
-const CLOCKWERK_DIR = resolve(process.env.HOME ?? "~", ".clockwerk");
-const DEVICE_ID_PATH = resolve(CLOCKWERK_DIR, "device-id");
-const USER_CONFIG_PATH = resolve(CLOCKWERK_DIR, "config.json");
 const PROJECT_CONFIG_FILE = ".clockwerk";
 
 export function getClockwerkDir(): string {
-  return CLOCKWERK_DIR;
+  return resolve(process.env.HOME ?? "~", ".clockwerk");
 }
 
 export function getDaemonSocketPath(): string {
-  return resolve(CLOCKWERK_DIR, "daemon.sock");
+  return resolve(getClockwerkDir(), "daemon.sock");
 }
 
 export function getDaemonPidPath(): string {
-  return resolve(CLOCKWERK_DIR, "daemon.pid");
+  return resolve(getClockwerkDir(), "daemon.pid");
 }
 
 export function getDaemonLogPath(): string {
-  return resolve(CLOCKWERK_DIR, "daemon.log");
+  return resolve(getClockwerkDir(), "daemon.log");
 }
 
 export function getDeviceId(): string {
-  if (existsSync(DEVICE_ID_PATH)) {
-    return readFileSync(DEVICE_ID_PATH, "utf-8").trim();
+  const clockwerkDir = getClockwerkDir();
+  const deviceIdPath = resolve(clockwerkDir, "device-id");
+  if (existsSync(deviceIdPath)) {
+    return readFileSync(deviceIdPath, "utf-8").trim();
   }
-  if (!existsSync(CLOCKWERK_DIR)) {
-    mkdirSync(CLOCKWERK_DIR, { recursive: true, mode: 0o700 });
+  if (!existsSync(clockwerkDir)) {
+    mkdirSync(clockwerkDir, { recursive: true, mode: 0o700 });
   }
   const id = randomUUID();
-  writeFileSync(DEVICE_ID_PATH, id + "\n", { mode: 0o600 });
+  writeFileSync(deviceIdPath, id + "\n", { mode: 0o600 });
   return id;
-}
-
-export function getUserConfig(): UserConfig | null {
-  if (!existsSync(USER_CONFIG_PATH)) return null;
-  try {
-    return JSON.parse(readFileSync(USER_CONFIG_PATH, "utf-8"));
-  } catch {
-    return null;
-  }
-}
-
-export function saveUserConfig(config: UserConfig): void {
-  if (!existsSync(CLOCKWERK_DIR)) {
-    mkdirSync(CLOCKWERK_DIR, { recursive: true, mode: 0o700 });
-  }
-  writeFileSync(USER_CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", {
-    mode: 0o600,
-  });
 }
 
 /**
@@ -100,41 +81,45 @@ export function saveProjectConfig(dir: string, config: ProjectConfig): void {
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 }
 
-const REGISTRY_PATH = resolve(CLOCKWERK_DIR, "projects.json");
-
 export function getProjectRegistry(): ProjectRegistryEntry[] {
-  if (!existsSync(REGISTRY_PATH)) return [];
+  const registryPath = resolve(getClockwerkDir(), "projects.json");
+  if (!existsSync(registryPath)) return [];
   try {
-    return JSON.parse(readFileSync(REGISTRY_PATH, "utf-8"));
+    const entries: ProjectRegistryEntry[] = JSON.parse(
+      readFileSync(registryPath, "utf-8"),
+    );
+    return entries.filter((e) => existsSync(e.directory));
   } catch {
     return [];
   }
 }
 
 export function registerProject(entry: ProjectRegistryEntry): void {
-  if (!existsSync(CLOCKWERK_DIR)) {
-    mkdirSync(CLOCKWERK_DIR, { recursive: true, mode: 0o700 });
+  if (!entry.project_token || typeof entry.project_token !== "string") {
+    throw new Error("Invalid project_token");
+  }
+  if (!entry.directory || !isAbsolute(entry.directory)) {
+    throw new Error("directory must be an absolute path");
+  }
+  const clockwerkDir = getClockwerkDir();
+  const registryPath = resolve(clockwerkDir, "projects.json");
+  if (!existsSync(clockwerkDir)) {
+    mkdirSync(clockwerkDir, { recursive: true, mode: 0o700 });
   }
   const registry = getProjectRegistry().filter((e) => e.directory !== entry.directory);
   registry.push(entry);
-  writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2) + "\n");
-}
-
-export function unregisterProject(directory: string): void {
-  const registry = getProjectRegistry().filter((e) => e.directory !== directory);
-  writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2) + "\n");
+  writeFileSync(registryPath, JSON.stringify(registry, null, 2) + "\n");
 }
 
 /**
- * Given an absolute file path, find the project registry entry whose directory
- * is the longest prefix match. Uses a path-boundary check so `/dev/time` won't
- * match `/dev/time-extra`.
+ * Given an absolute file path, find the registry entry whose directory is the
+ * longest prefix match. Uses a path-boundary check so `/dev/time` won't match
+ * `/dev/time-extra`. Pass a pre-loaded entries array to avoid a second file read.
  */
-export function resolveProjectFromPath(
+export function resolveFromEntries(
   absolutePath: string,
-  registry?: ProjectRegistryEntry[],
+  entries: ProjectRegistryEntry[],
 ): ProjectRegistryEntry | null {
-  const entries = registry ?? getProjectRegistry();
   let best: ProjectRegistryEntry | null = null;
   let bestLen = 0;
 
@@ -151,4 +136,14 @@ export function resolveProjectFromPath(
   }
 
   return best;
+}
+
+/**
+ * Given an absolute file path, find the project registry entry whose directory
+ * is the longest prefix match. Reads the registry internally.
+ */
+export function resolveProjectFromPath(
+  absolutePath: string,
+): ProjectRegistryEntry | null {
+  return resolveFromEntries(absolutePath, getProjectRegistry());
 }

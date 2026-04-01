@@ -1,5 +1,9 @@
-import { findProjectConfig, sendEvent, type ClockwerkEvent } from "@clockwerk/core";
-import { isDaemonRunning } from "../daemon/server";
+import {
+  findProjectConfig,
+  resolveProjectFromPath,
+  type ClockwerkEvent,
+} from "@clockwerk/core";
+import { daemon } from "../daemon/client";
 import { formatDuration } from "../format";
 import { success, error } from "../ui";
 
@@ -32,7 +36,13 @@ export default async function log(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  if (!isDaemonRunning()) {
+  const entry = resolveProjectFromPath(process.cwd());
+  if (!entry) {
+    error("Not in a tracked project. Run 'clockwerk init' first.");
+    process.exit(1);
+  }
+
+  if (!daemon.isRunning()) {
     error("Daemon is not running. Run 'clockwerk up' first.");
     process.exit(1);
   }
@@ -49,7 +59,7 @@ export default async function log(args: string[]): Promise<void> {
       timestamp: ts,
       event_type: "manual",
       source: "manual",
-      project_token: projectConfig.project_token,
+      project_token: entry.project_token,
       context: {
         description,
         topic: description,
@@ -59,7 +69,7 @@ export default async function log(args: string[]): Promise<void> {
   }
 
   for (const event of events) {
-    await sendEvent({ type: "event", data: event });
+    await daemon.send(event, { whenDown: "skip" });
   }
 
   const dur = formatDuration(seconds);

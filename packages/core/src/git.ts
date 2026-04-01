@@ -1,4 +1,8 @@
-import type { SessionCommit } from "./types";
+export interface Commit {
+  hash: string;
+  message: string;
+  ts: number;
+}
 
 /**
  * Fetch git commits within a time range for a given directory.
@@ -8,7 +12,7 @@ export function getCommitsInRange(
   projectDir: string,
   sinceTs: number,
   untilTs: number,
-): SessionCommit[] {
+): Commit[] {
   try {
     const result = Bun.spawnSync(
       [
@@ -35,7 +39,7 @@ export function getCommitsInRange(
         if (!hash || !message || !ts) return null;
         return { hash: hash.slice(0, 8), message, ts: Number(ts) };
       })
-      .filter((c): c is SessionCommit => c !== null)
+      .filter((c): c is Commit => c !== null)
       .sort((a, b) => a.ts - b.ts);
   } catch {
     return [];

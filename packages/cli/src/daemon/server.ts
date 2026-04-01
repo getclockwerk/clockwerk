@@ -7,55 +7,39 @@ import {
   closeSync,
   constants,
 } from "node:fs";
+import * as nodefs from "node:fs";
+import { join } from "node:path";
 import { umask } from "node:process";
+import { spawn } from "node:child_process";
 import {
   getDb,
-  insertEvents,
   closeDb,
   getDaemonSocketPath,
   getDaemonPidPath,
   getClockwerkDir,
   getProjectRegistry,
-  computeSessions,
-  mergeSessionsDuration,
-  SessionMaterializer,
+  querySessions,
   createWatchersFromRegistry,
+  type Period,
   type ClockwerkEvent,
   type DaemonMessage,
   type DaemonResponse,
 } from "@clockwerk/core";
 import { mkdirSync } from "node:fs";
-import { startPluginsFromRegistry, type PluginManager } from "./plugins";
+import { startPluginsFromRegistry, type PluginSupervisor } from "./plugins";
 import { initLogger, closeLogger, createLogger } from "./logger";
+import { PluginManager } from "../plugin-manager";
+import { createEventPipeline, type EventPipeline } from "./event-pipeline";
+import { createUpgradeDetector } from "./upgrade-detector";
 
 const log = createLogger("clockwerk");
 const socketLog = createLogger("daemon");
 
-const FLUSH_INTERVAL_MS = 1_000;
-const FLUSH_BATCH_SIZE = 100;
+const PLUGIN_CHECK_INTERVAL_MS = 86_400_000; // 24 hours
 
-let eventBuffer: ClockwerkEvent[] = [];
 let running = false;
-let pluginManager: PluginManager | null = null;
-let materializer: SessionMaterializer | null = null;
-
-function flushEvents(): void {
-  if (eventBuffer.length === 0) return;
-
-  const batch = eventBuffer;
-  eventBuffer = [];
-
-  try {
-    const db = getDb();
-    insertEvents(db, batch);
-    // Materialize events into sessions table
-    materializer?.materializeEvents(batch);
-  } catch (err) {
-    socketLog.error(`Failed to flush events: ${err}`);
-    // Put events back in the buffer for retry
-    eventBuffer = [...batch, ...eventBuffer];
-  }
-}
+let pluginManager: PluginSupervisor | null = null;
+let pipeline: EventPipeline | null = null;
 
 function handleQuery(method: string, params?: Record<string, unknown>): unknown {
   const db = getDb();
@@ -65,112 +49,30 @@ function handleQuery(method: string, params?: Record<string, unknown>): unknown 
       return {
         running: true,
         pid: process.pid,
-        buffered_events: eventBuffer.length,
+        buffered_events: pipeline?.bufferedCount ?? 0,
         plugins: pluginManager?.getStats() ?? [],
       };
     }
 
     case "sessions": {
-      const period = (params?.period as string) ?? "today";
-      const now = Math.floor(Date.now() / 1000);
-      let since: number;
-
-      let until: number | undefined;
-
-      switch (period) {
-        case "today": {
-          const d = new Date();
-          d.setHours(0, 0, 0, 0);
-          since = Math.floor(d.getTime() / 1000);
-          break;
-        }
-        case "yesterday": {
-          const d = new Date();
-          d.setHours(0, 0, 0, 0);
-          until = Math.floor(d.getTime() / 1000);
-          d.setDate(d.getDate() - 1);
-          since = Math.floor(d.getTime() / 1000);
-          break;
-        }
-        case "week": {
-          const d = new Date();
-          const day = d.getDay();
-          // getDay(): 0=Sun, 1=Mon, ..., 6=Sat
-          // Go back to Monday: Mon=0, Tue=1, ..., Sun=6
-          const daysSinceMonday = day === 0 ? 6 : day - 1;
-          d.setDate(d.getDate() - daysSinceMonday);
-          d.setHours(0, 0, 0, 0);
-          since = Math.floor(d.getTime() / 1000);
-          break;
-        }
-        case "month": {
-          const d = new Date();
-          d.setDate(1);
-          d.setHours(0, 0, 0, 0);
-          since = Math.floor(d.getTime() / 1000);
-          break;
-        }
-        case "all":
-          since = 0;
-          break;
-        default:
-          since = now - 86400;
-      }
-
-      const projectToken = params?.project_token as string | undefined;
-
-      // Read from materialized sessions table
-      if (materializer) {
-        const sessions = materializer.querySessions({
-          projectToken: projectToken ?? undefined,
-          since: since || undefined,
-          until,
-        });
-        const totalSeconds = mergeSessionsDuration(sessions);
-        return { sessions, total_seconds: totalSeconds };
-      }
-
-      // Fallback to compute from events (pre-backfill)
-      if (!projectToken) {
-        const tokens = db
-          .query<{ project_token: string }, [number]>(
-            "SELECT DISTINCT project_token FROM events WHERE timestamp >= ?",
-          )
-          .all(since)
-          .map((r) => r.project_token);
-
-        const allSessions = tokens.flatMap((t) => computeSessions(db, t, since));
-        const totalSeconds = mergeSessionsDuration(allSessions);
-        return { sessions: allSessions, total_seconds: totalSeconds };
-      }
-
-      const sessions = computeSessions(db, projectToken, since);
-      const totalSeconds = mergeSessionsDuration(sessions);
-      return { sessions, total_seconds: totalSeconds };
+      const result = querySessions(pipeline?.materializer ?? db, {
+        period: (params?.period as Period) ?? "today",
+        projectToken: params?.project_token as string | undefined,
+      });
+      return { sessions: result.sessions, total_seconds: result.total_seconds };
     }
 
     case "update_session": {
-      const sessionId = params?.session_id as string | undefined;
-      if (!sessionId) return { error: "session_id is required" };
-
-      const description = params?.description as string | undefined;
-      const summary = params?.summary as string | undefined;
-
-      if (!materializer) return { error: "Materializer not initialized" };
-
-      const updated = materializer.updateSession(sessionId, { description, summary });
-      if (!updated) return { error: `Session not found: ${sessionId}` };
-
-      return { ok: true, session: updated };
+      return { ok: true };
     }
 
     case "delete_session": {
       const sessionId = params?.session_id as string | undefined;
       if (!sessionId) return { error: "session_id is required" };
 
-      if (!materializer) return { error: "Materializer not initialized" };
+      if (!pipeline) return { error: "Materializer not initialized" };
 
-      const deleted = materializer.deleteSession(sessionId);
+      const deleted = pipeline.materializer.deleteSession(sessionId);
       if (!deleted) return { error: `Session not found: ${sessionId}` };
 
       return { ok: true };
@@ -180,9 +82,9 @@ function handleQuery(method: string, params?: Record<string, unknown>): unknown 
       const sessionId = params?.session_id as string | undefined;
       if (!sessionId) return { error: "session_id is required" };
 
-      if (!materializer) return { error: "Materializer not initialized" };
+      if (!pipeline) return { error: "Materializer not initialized" };
 
-      const restored = materializer.restoreSession(sessionId);
+      const restored = pipeline.materializer.restoreSession(sessionId);
       if (!restored) return { error: `Deleted session not found: ${sessionId}` };
 
       return { ok: true };
@@ -251,10 +153,7 @@ function handleMessage(raw: string): string | null {
 
   if (msg.type === "event") {
     if (!validateEvent(msg.data)) return null;
-    eventBuffer.push(msg.data);
-    if (eventBuffer.length >= FLUSH_BATCH_SIZE) {
-      flushEvents();
-    }
+    pipeline?.ingest(msg.data);
     return null; // fire-and-forget, no response
   }
 
@@ -341,48 +240,34 @@ export function startDaemon(opts?: { foreground?: boolean }): void {
   // Initialize database
   const db = getDb();
 
-  // Initialize session materializer
-  materializer = new SessionMaterializer(db);
+  // Initialize event pipeline (materializer + timers)
+  pipeline = createEventPipeline({
+    db,
+    onError(context, err) {
+      if (context === "flush") {
+        socketLog.error(`Failed to flush events: ${err}`);
+      } else if (context === "merge") {
+        socketLog.error(`Failed to merge sessions: ${err}`);
+      } else if (context === "prune") {
+        socketLog.error(`Failed to prune events: ${err}`);
+      }
+    },
+  });
 
-  // Backfill sessions table from events if needed (first start after upgrade)
-  if (materializer.needsBackfill()) {
+  const needsBackfill = pipeline.materializer.needsBackfill();
+  if (needsBackfill) {
     log.info("Backfilling sessions table from events...");
-    materializer.backfillFromEvents(computeSessions);
+  }
+  pipeline.start();
+  if (needsBackfill) {
     log.info("Backfill complete.");
   }
-
-  // Start flush interval
-  const flushTimer = setInterval(flushEvents, FLUSH_INTERVAL_MS);
-
-  // Start periodic session merge (every 30s)
-  const mergeTimer = setInterval(() => {
-    try {
-      materializer?.mergeAdjacentSessions();
-    } catch (err) {
-      socketLog.error(`Failed to merge sessions: ${err}`);
-    }
-  }, 30_000);
-
-  // Prune old events periodically (every hour, 30+ day old events)
-  const pruneTimer = setInterval(() => {
-    try {
-      const pruned = materializer?.pruneOldEvents(30);
-      if (pruned && pruned > 0) {
-        log.info(`Pruned ${pruned} old events.`);
-      }
-    } catch (err) {
-      socketLog.error(`Failed to prune events: ${err}`);
-    }
-  }, 3_600_000);
 
   // Start file watchers for registered projects
   const registry = getProjectRegistry();
   const watchers = createWatchersFromRegistry(registry, {
     onHeartbeat(event) {
-      eventBuffer.push(event);
-      if (eventBuffer.length >= FLUSH_BATCH_SIZE) {
-        flushEvents();
-      }
+      pipeline?.ingest(event);
     },
     onLog(level, prefix, message) {
       createLogger(prefix)[level](message);
@@ -390,14 +275,44 @@ export function startDaemon(opts?: { foreground?: boolean }): void {
   });
 
   // Start plugins for registered projects
-  pluginManager = startPluginsFromRegistry(registry, {
-    onEvent(event) {
-      eventBuffer.push(event);
-      if (eventBuffer.length >= FLUSH_BATCH_SIZE) {
-        flushEvents();
-      }
-    },
+  const manager = new PluginManager({
+    fs: nodefs,
+    fetch: globalThis.fetch,
+    pluginsDir: join(getClockwerkDir(), "plugins"),
   });
+  pluginManager = startPluginsFromRegistry(
+    registry,
+    {
+      onEvent(event) {
+        pipeline?.ingest(event);
+      },
+    },
+    manager,
+  );
+
+  // Plugin update check: run now and every 24 hours. Never auto-installs.
+  function runPluginUpdateCheck(): void {
+    manager
+      .checkUpdates()
+      .then((results) => {
+        const updates = results
+          .filter((r) => r.hasUpdate && r.latestVersion !== null)
+          .map((r) => ({
+            name: r.name,
+            installedVersion: r.installedVersion,
+            latestVersion: r.latestVersion as string,
+          }));
+        manager.saveUpdateCache({ checkedAt: Date.now(), updates });
+        if (updates.length > 0) {
+          log.info(`Plugin updates available: ${updates.map((u) => u.name).join(", ")}`);
+        }
+      })
+      .catch((err: unknown) => {
+        log.warn(`Plugin update check failed: ${String(err)}`);
+      });
+  }
+  runPluginUpdateCheck();
+  const pluginCheckTimer = setInterval(runPluginUpdateCheck, PLUGIN_CHECK_INTERVAL_MS);
 
   // Start Unix socket server (restrict to owner-only via umask)
   const prevUmask = umask(0o177);
@@ -431,50 +346,46 @@ export function startDaemon(opts?: { foreground?: boolean }): void {
   log.info(`Listening on ${socketPath}`);
 
   // Graceful shutdown
-  const shutdown = () => {
+  const shutdown = (spawnUpgrade = false) => {
     if (!running) return;
     running = false;
     log.info("Shutting down...");
 
-    clearInterval(flushTimer);
-    clearInterval(mergeTimer);
-    clearInterval(pruneTimer);
-    // Final merge before shutdown
-    try {
-      materializer?.mergeAdjacentSessions();
-    } catch {
-      /* best effort */
-    }
+    upgradeDetector.stop();
+    clearInterval(pluginCheckTimer);
     for (const w of watchers) w.stop();
     pluginManager?.stop();
-    flushEvents(); // Final flush
+    pipeline?.stop();
+    pipeline = null;
     server.stop();
     closeDb();
 
     if (existsSync(socketPath)) unlinkSync(socketPath);
     if (existsSync(pidPath)) unlinkSync(pidPath);
 
-    log.info("Daemon stopped.");
+    if (spawnUpgrade) {
+      const child = spawn(process.execPath, ["up", "--foreground"], {
+        detached: true,
+        stdio: "ignore",
+      });
+      child.unref();
+      log.info("Daemon stopped for upgrade.");
+    } else {
+      log.info("Daemon stopped.");
+    }
+
     closeLogger();
     process.exit(0);
   };
 
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
-}
+  const upgradeDetector = createUpgradeDetector({
+    onUpgradeDetected() {
+      log.info("Binary upgrade detected, restarting daemon...");
+      shutdown(true);
+    },
+  });
+  upgradeDetector.start();
 
-export function isDaemonRunning(): boolean {
-  const pidPath = getDaemonPidPath();
-  if (!existsSync(pidPath)) return false;
-
-  try {
-    const pid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
-    // Check if process is alive
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    // Stale PID file - clean up
-    if (existsSync(pidPath)) unlinkSync(pidPath);
-    return false;
-  }
+  process.on("SIGINT", () => shutdown());
+  process.on("SIGTERM", () => shutdown());
 }

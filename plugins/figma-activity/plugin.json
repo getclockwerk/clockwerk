@@ -1,0 +1,12 @@
+{
+  "name": "figma-activity",
+  "version": "1.0.0",
+  "display_name": "Figma Activity",
+  "description": "Polls a Figma file for recent edits using the REST API and emits events when design activity is detected.",
+  "author": "Clockwerk",
+  "event_type": "file_edit",
+  "source": "plugin:figma",
+  "command": "./plugin.sh",
+  "interval": 30,
+  "tags": ["figma", "design"]
+}

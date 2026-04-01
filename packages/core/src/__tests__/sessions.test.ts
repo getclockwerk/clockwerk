@@ -18,14 +18,13 @@ describe("computeSessions", () => {
     expect(sessions).toHaveLength(1);
     expect(sessions[0].start_ts).toBe(baseTs);
     expect(sessions[0].end_ts).toBe(baseTs + 540);
-    expect(sessions[0].event_count).toBe(10);
     db.close();
   });
 
   test("splits sessions at gap > SESSION_GAP", () => {
     const db = createTestDb();
     const baseTs = 1700000000;
-    // Two clusters with a 10-minute gap (> 5 min SESSION_GAP)
+    // Two clusters with a gap > SESSION_GAP
     const events = createEventSequence(baseTs, [
       0,
       60,
@@ -37,8 +36,6 @@ describe("computeSessions", () => {
 
     const sessions = computeSessions(db, "proj_test_123");
     expect(sessions).toHaveLength(2);
-    expect(sessions[0].event_count).toBe(3);
-    expect(sessions[1].event_count).toBe(2);
     db.close();
   });
 
@@ -56,7 +53,7 @@ describe("computeSessions", () => {
     db.close();
   });
 
-  test("partitions events by branch", () => {
+  test("partitions events by branch into separate sessions", () => {
     const db = createTestDb();
     const baseTs = 1700000000;
     const mainEvents = createEventSequence(baseTs, [0, 60, 120], {
@@ -69,8 +66,6 @@ describe("computeSessions", () => {
 
     const sessions = computeSessions(db, "proj_test_123");
     expect(sessions).toHaveLength(2);
-    const branches = sessions.map((s) => s.branch).sort();
-    expect(branches).toEqual(["feature/abc", "main"]);
     db.close();
   });
 
@@ -78,6 +73,24 @@ describe("computeSessions", () => {
     const db = createTestDb();
     const sessions = computeSessions(db, "proj_test_123");
     expect(sessions).toEqual([]);
+    db.close();
+  });
+
+  test("uses custom sessionGap when provided", () => {
+    const db = createTestDb();
+    const baseTs = 1700000000;
+    const customGap = 300; // 5 minutes
+    // Events with a 400s gap - exceeds custom gap but not SESSION_GAP
+    const events = createEventSequence(baseTs, [0, 60, 120, 120 + 400, 120 + 460]);
+    insertEvents(db, events);
+
+    // Without custom gap: single session (400s < SESSION_GAP of 1500s)
+    const defaultSessions = computeSessions(db, "proj_test_123");
+    expect(defaultSessions).toHaveLength(1);
+
+    // With custom gap of 300s: two sessions (400s > 300s)
+    const customSessions = computeSessions(db, "proj_test_123", undefined, customGap);
+    expect(customSessions).toHaveLength(2);
     db.close();
   });
 
@@ -90,44 +103,44 @@ describe("computeSessions", () => {
     const sessions = computeSessions(db, "proj_test_123", baseTs + 500);
     // Only events at baseTs+1000 and baseTs+1060 should be included
     expect(sessions).toHaveLength(1);
-    expect(sessions[0].event_count).toBe(2);
     db.close();
   });
 
-  test("aggregates file areas from file paths", () => {
+  test("picks the most frequent source as primary source", () => {
     const db = createTestDb();
     const baseTs = 1700000000;
     const events = [
-      createEvent({ timestamp: baseTs, context: { file_path: "src/index.ts" } }),
-      createEvent({ timestamp: baseTs + 60, context: { file_path: "src/utils.ts" } }),
-      createEvent({
-        timestamp: baseTs + 120,
-        context: { file_path: "packages/core/db.ts" },
-      }),
+      createEvent({ timestamp: baseTs, source: "claude-code" }),
+      createEvent({ timestamp: baseTs + 60, source: "claude-code" }),
+      createEvent({ timestamp: baseTs + 120, source: "cursor" }),
     ];
     insertEvents(db, events);
 
     const sessions = computeSessions(db, "proj_test_123");
     expect(sessions).toHaveLength(1);
-    // buildSession uses first 2 path segments for areas
-    // "src/index.ts" -> area "src/index.ts", "packages/core/db.ts" -> "packages/core"
-    expect(sessions[0].file_areas.some((a) => a.startsWith("src/"))).toBe(true);
-    expect(sessions[0].file_areas).toContain("packages/core");
+    expect(sessions[0].source).toBe("claude-code");
     db.close();
   });
 
-  test("filters out temp files from file lists", () => {
+  test("session output contains minimal fields: id, project_token, start_ts, end_ts, duration_seconds, source", () => {
     const db = createTestDb();
     const baseTs = 1700000000;
-    const events = [
-      createEvent({ timestamp: baseTs, context: { file_path: "src/index.ts" } }),
-      createEvent({ timestamp: baseTs + 60, context: { file_path: "src/temp.swp" } }),
-      createEvent({ timestamp: baseTs + 120, context: { file_path: "src/backup.bak" } }),
-    ];
+    const events = [createEvent({ timestamp: baseTs })];
     insertEvents(db, events);
 
     const sessions = computeSessions(db, "proj_test_123");
-    expect(sessions[0].files_changed).toEqual(["src/index.ts"]);
+    expect(sessions).toHaveLength(1);
+    const session = sessions[0];
+    expect(typeof session.id).toBe("string");
+    expect(typeof session.project_token).toBe("string");
+    expect(typeof session.start_ts).toBe("number");
+    expect(typeof session.end_ts).toBe("number");
+    expect(typeof session.duration_seconds).toBe("number");
+    expect(typeof session.source).toBe("string");
+    // Removed fields should not be present
+    expect((session as unknown as Record<string, unknown>).branch).toBeUndefined();
+    expect((session as unknown as Record<string, unknown>).topics).toBeUndefined();
+    expect((session as unknown as Record<string, unknown>).event_count).toBeUndefined();
     db.close();
   });
 });
@@ -141,14 +154,11 @@ describe("mergeSessionsDuration", () => {
     const sessions = [
       {
         id: "s1",
-        project_token: "proj",
+        project_token: "proj_test",
         start_ts: 1000,
         end_ts: 2000,
         duration_seconds: 1000,
         source: "claude-code",
-        topics: [],
-        file_areas: [],
-        event_count: 5,
       },
     ];
     expect(mergeSessionsDuration(sessions)).toBe(1000);
@@ -158,25 +168,19 @@ describe("mergeSessionsDuration", () => {
     const sessions = [
       {
         id: "s1",
-        project_token: "proj",
+        project_token: "proj_test",
         start_ts: 1000,
         end_ts: 2000,
         duration_seconds: 1000,
         source: "claude-code",
-        topics: [],
-        file_areas: [],
-        event_count: 5,
       },
       {
         id: "s2",
-        project_token: "proj",
+        project_token: "proj_test",
         start_ts: 1500,
         end_ts: 2500,
         duration_seconds: 1000,
         source: "claude-code",
-        topics: [],
-        file_areas: [],
-        event_count: 3,
       },
     ];
     // Merged: 1000-2500 = 1500s
@@ -187,25 +191,19 @@ describe("mergeSessionsDuration", () => {
     const sessions = [
       {
         id: "s1",
-        project_token: "proj",
+        project_token: "proj_test",
         start_ts: 1000,
         end_ts: 3000,
         duration_seconds: 2000,
         source: "claude-code",
-        topics: [],
-        file_areas: [],
-        event_count: 10,
       },
       {
         id: "s2",
-        project_token: "proj",
+        project_token: "proj_test",
         start_ts: 1500,
         end_ts: 2000,
         duration_seconds: 500,
         source: "claude-code",
-        topics: [],
-        file_areas: [],
-        event_count: 2,
       },
     ];
     // s2 is fully contained in s1, total = 2000
@@ -216,25 +214,19 @@ describe("mergeSessionsDuration", () => {
     const sessions = [
       {
         id: "s1",
-        project_token: "proj",
+        project_token: "proj_test",
         start_ts: 1000,
         end_ts: 2000,
         duration_seconds: 1000,
         source: "claude-code",
-        topics: [],
-        file_areas: [],
-        event_count: 5,
       },
       {
         id: "s2",
-        project_token: "proj",
+        project_token: "proj_test",
         start_ts: 3000,
         end_ts: 4000,
         duration_seconds: 1000,
         source: "claude-code",
-        topics: [],
-        file_areas: [],
-        event_count: 3,
       },
     ];
     expect(mergeSessionsDuration(sessions)).toBe(2000);

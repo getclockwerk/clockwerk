@@ -4,21 +4,6 @@ import type { Session } from "./types";
 export const SESSION_GAP = 1500; // 25 minutes in seconds
 const SESSION_MIN = 60; // minimum session duration in seconds
 
-const TEMP_EXTENSIONS = [".tmp", ".temp", ".swp", ".swo", ".bak", ".orig"];
-
-/** Filter out temporary/transient files from session file lists. */
-function isTempFile(filePath: string): boolean {
-  const basename = filePath.split("/").pop() ?? filePath;
-  for (const ext of TEMP_EXTENSIONS) {
-    if (basename.endsWith(ext)) return true;
-  }
-  // Patterns like "foo.tmp.js", "bar.temp.tsx"
-  if (basename.includes(".tmp.") || basename.includes(".temp.")) return true;
-  // Editor backup files like "file.txt~"
-  if (basename.endsWith("~")) return true;
-  return false;
-}
-
 interface EventRow {
   id: string;
   timestamp: number;
@@ -39,7 +24,7 @@ interface EventRow {
  *
  * Ported from tt's compute_sessions_sql() - same algorithm:
  * 1. Partition events by harness_session_id (or project:branch fallback)
- * 2. Detect gaps > 5 minutes between consecutive events
+ * 2. Detect gaps > 25 minutes between consecutive events
  * 3. Group consecutive events between gaps into sessions
  * 4. Enforce minimum 60s per session
  */
@@ -47,8 +32,10 @@ export function computeSessions(
   db: Database,
   projectToken: string,
   since?: number,
+  sessionGap?: number,
 ): Session[] {
   const sinceTs = since ?? 0;
+  const gapThreshold = sessionGap ?? SESSION_GAP;
 
   const events = db
     .query<EventRow, [string, number]>(
@@ -80,7 +67,7 @@ export function computeSessions(
     for (let i = 1; i < partEvents.length; i++) {
       const gap = partEvents[i].timestamp - partEvents[i - 1].timestamp;
 
-      if (gap > SESSION_GAP) {
+      if (gap > gapThreshold) {
         sessions.push(buildSession(partitionKey, sessionStart, sessionEvents));
         sessionStart = partEvents[i].timestamp;
         sessionEvents = [partEvents[i]];
@@ -122,44 +109,6 @@ function buildSession(
     }
   }
 
-  const eventTypeCounts: Record<string, number> = {};
-  for (const e of events) {
-    eventTypeCounts[e.event_type] = (eventTypeCounts[e.event_type] ?? 0) + 1;
-  }
-
-  const topicSet = new Set<string>();
-  for (const e of events) {
-    if (e.topic) topicSet.add(e.topic);
-  }
-
-  const fileSet = new Set<string>();
-  for (const e of events) {
-    if (!e.file_path) continue;
-    // Heartbeat events join multiple paths with ", "
-    const paths = e.file_path.includes(", ") ? e.file_path.split(", ") : [e.file_path];
-    for (const fp of paths) {
-      if (fp && !isTempFile(fp)) fileSet.add(fp);
-    }
-  }
-
-  const areaSet = new Set<string>();
-  for (const fp of fileSet) {
-    const parts = fp.split("/");
-    const area = parts.slice(0, Math.min(2, parts.length)).join("/");
-    if (area) areaSet.add(area);
-  }
-
-  const toolSet = new Set<string>();
-  for (const e of events) {
-    if (e.tool_name) toolSet.add(e.tool_name);
-  }
-
-  const issueId = events.find((e) => e.issue_id)?.issue_id ?? undefined;
-  const branch = events.find((e) => e.branch)?.branch ?? undefined;
-
-  const sourceBreakdown =
-    sourceCounts.size > 1 ? Object.fromEntries(sourceCounts) : undefined;
-
   return {
     id: `${partitionKey}:${startTs}`,
     project_token: events[0].project_token,
@@ -167,15 +116,6 @@ function buildSession(
     end_ts: endTs,
     duration_seconds: endTs - startTs,
     source: primarySource,
-    branch,
-    issue_id: issueId,
-    topics: [...topicSet],
-    file_areas: [...areaSet],
-    event_count: events.length,
-    event_types: eventTypeCounts,
-    files_changed: fileSet.size > 0 ? [...fileSet] : undefined,
-    tools_used: toolSet.size > 0 ? [...toolSet] : undefined,
-    source_breakdown: sourceBreakdown,
   };
 }
 

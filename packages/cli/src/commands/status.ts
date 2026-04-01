@@ -1,76 +1,67 @@
-import { isDaemonRunning } from "../daemon/server";
+import { join } from "node:path";
+import * as fs from "node:fs";
+import { daemon } from "../daemon/client";
 import {
-  queryDaemon,
-  findProjectConfig,
+  resolveProjectFromPath,
   openDbReadOnly,
-  SessionMaterializer,
-  mergeSessionsDuration,
+  querySessions,
+  getClockwerkDir,
 } from "@clockwerk/core";
 import { formatDuration } from "../format";
-import { kv, heading, badge, dim, error, pc } from "../ui";
+import { kv, badge, dim, error, warn, pc } from "../ui";
+import { PluginManager } from "../plugin-manager";
+
+const pluginManager = new PluginManager({
+  fs,
+  fetch: globalThis.fetch,
+  pluginsDir: join(getClockwerkDir(), "plugins"),
+});
 
 export default async function status(_args: string[]): Promise<void> {
-  const daemonUp = isDaemonRunning();
+  const daemonUp = daemon.isRunning();
   kv(
     "Daemon",
     badge(daemonUp ? "running" : "stopped", daemonUp ? "success" : "error"),
     0,
   );
 
-  const project = findProjectConfig(process.cwd());
-  if (project) {
-    kv("Project", project.project_token, 0);
-  }
+  const entry = resolveProjectFromPath(process.cwd());
 
   if (daemonUp) {
-    await queryDaemonStatus(project?.project_token);
+    await queryDaemonStatus(entry?.project_token);
   } else {
-    queryOffline(project?.project_token);
+    queryOffline(entry?.project_token);
+  }
+
+  const cache = pluginManager.loadUpdateCache();
+  if (cache && cache.updates.length > 0) {
+    console.log();
+    warn(`Plugin updates available (${cache.updates.length}):`);
+    for (const u of cache.updates) {
+      console.log(
+        `  ${u.name}: ${pc.dim(u.installedVersion)} -> ${pc.bold(u.latestVersion)}`,
+      );
+    }
+    dim("Run 'clockwerk plugin update' to update.");
   }
 }
 
 async function queryDaemonStatus(projectToken?: string): Promise<void> {
-  const params: Record<string, unknown> = { period: "today" };
+  const todayParams: Record<string, unknown> = { period: "today" };
+  const weekParams: Record<string, unknown> = { period: "week" };
   if (projectToken) {
-    params.project_token = projectToken;
+    todayParams.project_token = projectToken;
+    weekParams.project_token = projectToken;
   }
 
   try {
-    const statusRes = await queryDaemon("status");
-    const statusData = statusRes.data as {
-      plugins?: {
-        name: string;
-        source: string;
-        running: boolean;
-        eventCount: number;
-        lastEventTs: number | null;
-      }[];
-    };
+    const [todayData, weekData] = await Promise.all([
+      daemon.query<{ total_seconds: number }>("sessions", todayParams),
+      daemon.query<{ total_seconds: number }>("sessions", weekParams),
+    ]);
 
-    const res = await queryDaemon("sessions", params);
-    const data = res.data as { sessions: unknown[]; total_seconds: number };
-
-    kv(
-      "Today",
-      `${pc.bold(formatDuration(data.total_seconds))} across ${data.sessions.length} session(s)`,
-      0,
-    );
-
-    const plugins = statusData.plugins ?? [];
-    if (plugins.length > 0) {
-      heading(`Plugins (${plugins.length})`);
-      for (const p of plugins) {
-        const status = badge(
-          p.running ? "running" : "stopped",
-          p.running ? "success" : "error",
-        );
-        const events = p.eventCount > 0 ? pc.dim(` · ${p.eventCount} events`) : "";
-        const lastEvent = p.lastEventTs
-          ? pc.dim(` · last ${formatTimeSince(p.lastEventTs)}`)
-          : "";
-        console.log(`  ${pc.white(p.name)} [${status}]${events}${lastEvent}`);
-      }
-    }
+    kv("Today", pc.bold(formatDuration(todayData?.total_seconds ?? 0)), 0);
+    kv("Week", pc.bold(formatDuration(weekData?.total_seconds ?? 0)), 0);
   } catch (err) {
     error(`Failed to query daemon: ${err}`);
     process.exit(1);
@@ -85,33 +76,13 @@ function queryOffline(projectToken?: string): void {
   }
 
   try {
-    const materializer = new SessionMaterializer(db);
+    const today = querySessions(db, { period: "today", projectToken });
+    const week = querySessions(db, { period: "week", projectToken });
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const since = Math.floor(todayStart.getTime() / 1000);
-
-    const sessions = materializer.querySessions({
-      projectToken,
-      since,
-    });
-
-    const totalSeconds = mergeSessionsDuration(sessions);
-
-    kv(
-      "Today",
-      `${pc.bold(formatDuration(totalSeconds))} across ${sessions.length} session(s)`,
-      0,
-    );
+    kv("Today", pc.bold(formatDuration(today.total_seconds)), 0);
+    kv("Week", pc.bold(formatDuration(week.total_seconds)), 0);
     dim("(offline - reading from local database)");
   } finally {
     db.close();
   }
-}
-
-function formatTimeSince(ts: number): string {
-  const diff = Math.floor(Date.now() / 1000) - ts;
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  return `${Math.floor(diff / 3600)}h ago`;
 }

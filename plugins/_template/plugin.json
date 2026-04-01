@@ -1,0 +1,12 @@
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "display_name": "My Plugin",
+  "description": "A short description of what this plugin tracks.",
+  "author": "Your Name",
+  "event_type": "manual",
+  "source": "plugin:my-plugin",
+  "command": "./plugin.sh",
+  "interval": 5,
+  "tags": ["example"]
+}

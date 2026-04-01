@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { parseLine } from "../plugins";
+import { parseLine } from "../../plugin-manager";
 
 describe("parseLine", () => {
   test("parses valid JSON with all fields", () => {

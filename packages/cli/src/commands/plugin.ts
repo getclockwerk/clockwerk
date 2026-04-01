@@ -1,25 +1,30 @@
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  copyFileSync,
+  readFileSync,
+  writeFileSync,
+  chmodSync,
+} from "node:fs";
+import * as fs from "node:fs";
 import {
   findProjectConfig,
   findProjectConfigPath,
-  saveProjectConfig,
   isValidSource,
+  getClockwerkDir,
   type PluginConfig,
   type EventType,
 } from "@clockwerk/core";
-import { parseLine } from "../daemon/plugins";
-import { success, error, info, dim, pc } from "../ui";
+import { parseLine, PluginManager, PLUGIN_NAME_RE, EVENT_TYPES } from "../plugin-manager";
+import { success, error, info, dim, pc, spinner } from "../ui";
 
-const VALID_EVENT_TYPES: EventType[] = [
-  "tool_call",
-  "file_edit",
-  "file_read",
-  "chat_message",
-  "completion_accept",
-  "git_commit",
-  "manual",
-  "heartbeat",
-];
+const manager = new PluginManager({
+  fs,
+  fetch: globalThis.fetch,
+  pluginsDir: join(getClockwerkDir(), "plugins"),
+});
 
 const TEMPLATES: Record<string, Omit<PluginConfig, "name">> = {
   "docker-logs": {
@@ -29,11 +34,11 @@ const TEMPLATES: Record<string, Omit<PluginConfig, "name">> = {
     source: "plugin:docker",
     interval: 5,
   },
-  "npm-scripts": {
-    command: 'inotifywait -m -e close_write package.json --format "%w%f"',
+  "figma-activity": {
+    command: "./plugin.sh",
     event_type: "file_edit",
-    source: "plugin:npm",
-    interval: 10,
+    source: "plugin:figma",
+    interval: 30,
   },
   "git-activity": {
     command: "fswatch .git/refs --recursive",
@@ -56,26 +61,31 @@ function printUsage(): void {
 clockwerk plugin - Manage custom event plugins
 
 Usage:
-  clockwerk plugin add <name> --command <cmd> [options]
-  clockwerk plugin add <name> --template <template>
+  clockwerk plugin add <name>                    Install plugin from the Clockwerk registry
+  clockwerk plugin add <name> --command <cmd>    Add inline plugin with custom command
+  clockwerk plugin add <name> --template <name>  Add inline plugin from a starter template
   clockwerk plugin remove <name>
   clockwerk plugin list
+  clockwerk plugin update
   clockwerk plugin test <name>
+  clockwerk plugin create <name>                 Scaffold a new plugin for contribution
 
-Options for 'add':
-  --command <cmd>       Command to run (stdout lines become events) [required unless --template]
+Options for 'add' (inline mode):
+  --command <cmd>       Command to run (stdout lines become events)
   --template <name>     Use a starter template: ${templateNames}
   --event-type <type>   Event type (default: "manual")
-                        Valid: ${VALID_EVENT_TYPES.join(", ")}
+                        Valid: ${EVENT_TYPES.join(", ")}
   --source <source>     Source identifier (default: "plugin:<name>")
   --interval <seconds>  Min seconds between events (default: 1)
 
 Examples:
+  clockwerk plugin add git-activity
   clockwerk plugin add deploy-tracker --command "tail -f /var/log/deploy.log"
   clockwerk plugin add figma --command "fswatch ~/designs" --event-type file_edit --interval 5
   clockwerk plugin add docker --template docker-logs
   clockwerk plugin test deploy-tracker
   clockwerk plugin remove deploy-tracker
+  clockwerk plugin create my-plugin
 `);
 }
 
@@ -94,13 +104,45 @@ async function add(args: string[]): Promise<void> {
   const name = args[0];
   if (!name || name.startsWith("--")) {
     error("Plugin name is required.");
-    dim("Usage: clockwerk plugin add <name> --command <cmd>");
+    dim("Usage: clockwerk plugin add <name>");
     process.exit(1);
   }
 
   const flags = parseFlags(args.slice(1));
+  const isInlineMode = !!(flags["command"] || flags["template"]);
 
-  // Handle templates
+  if (isInlineMode) {
+    await addInline(name, flags);
+  } else {
+    await addFromRegistry(name);
+  }
+}
+
+async function addFromRegistry(name: string): Promise<void> {
+  const cwd = process.cwd();
+  const configPath = findProjectConfigPath(cwd);
+  if (!configPath) {
+    error("No .clockwerk config found. Run 'clockwerk init' first.");
+    process.exit(1);
+  }
+
+  const projectDir = resolve(configPath, "..");
+  const spin = spinner(`Fetching plugin "${name}" from registry...`);
+  const result = await manager.install(name, projectDir);
+  spin.stop();
+
+  if (!result.ok) {
+    error(result.error);
+    process.exit(1);
+  }
+
+  success(`Plugin "${name}" v${result.data.version} installed.`);
+  console.log(`  ${result.data.displayName} - ${result.data.description}`);
+  console.log(`  installed to: ${result.data.scriptPath}`);
+  dim("\nThe daemon will pick up this plugin automatically.");
+}
+
+async function addInline(name: string, flags: Record<string, string>): Promise<void> {
   let command = flags["command"];
   let eventType = flags["event-type"] as EventType | undefined;
   let source = flags["source"];
@@ -113,7 +155,6 @@ async function add(args: string[]): Promise<void> {
       dim(`Available: ${Object.keys(TEMPLATES).join(", ")}`);
       process.exit(1);
     }
-    // Template provides defaults, flags override
     command = command ?? template.command;
     eventType = eventType ?? template.event_type;
     source = source ?? template.source;
@@ -127,11 +168,6 @@ async function add(args: string[]): Promise<void> {
   }
 
   eventType = eventType ?? "manual";
-  if (!VALID_EVENT_TYPES.includes(eventType)) {
-    error(`Invalid event type "${eventType}".`);
-    dim(`Valid types: ${VALID_EVENT_TYPES.join(", ")}`);
-    process.exit(1);
-  }
 
   source = source ?? `plugin:${name}`;
 
@@ -155,26 +191,20 @@ async function add(args: string[]): Promise<void> {
   }
 
   const projectDir = resolve(configPath, "..");
-  const config = findProjectConfig(cwd)!;
 
-  if (!config.plugins) config.plugins = [];
-
-  const existing = config.plugins.find((p) => p.name === name);
-  if (existing) {
-    error(`Plugin "${name}" already exists. Remove it first to reconfigure.`);
-    process.exit(1);
-  }
-
-  const plugin: PluginConfig = {
+  const pluginConfig: PluginConfig = {
     name,
     command,
     event_type: eventType,
     source,
   };
-  if (interval !== undefined) plugin.interval = interval;
+  if (interval !== undefined) pluginConfig.interval = interval;
 
-  config.plugins.push(plugin);
-  saveProjectConfig(projectDir, config);
+  const result = manager.addInline(pluginConfig, projectDir);
+  if (!result.ok) {
+    error(result.error);
+    process.exit(1);
+  }
 
   success(`Plugin "${name}" added.`);
   console.log(`  command:    ${command}`);
@@ -194,59 +224,60 @@ async function remove(args: string[]): Promise<void> {
 
   const cwd = process.cwd();
   const configPath = findProjectConfigPath(cwd);
-  if (!configPath) {
-    error("No .clockwerk config found.");
+  const projectDir = configPath ? resolve(configPath, "..") : null;
+
+  const result = manager.remove(name, projectDir);
+  if (!result.ok) {
+    error(result.error);
     process.exit(1);
   }
 
-  const projectDir = resolve(configPath, "..");
-  const config = findProjectConfig(cwd)!;
-
-  if (!config.plugins || config.plugins.length === 0) {
-    error("No plugins configured.");
-    process.exit(1);
-  }
-
-  const before = config.plugins.length;
-  config.plugins = config.plugins.filter((p) => p.name !== name);
-
-  if (config.plugins.length === before) {
-    error(`Plugin "${name}" not found.`);
-    process.exit(1);
-  }
-
-  if (config.plugins.length === 0) delete config.plugins;
-
-  saveProjectConfig(projectDir, config);
   success(`Plugin "${name}" removed.`);
-  dim("\nThe daemon will pick up this change automatically.");
+  if (result.data.removedFromConfig)
+    dim("The daemon will pick up this change automatically.");
 }
 
 async function list(_args: string[]): Promise<void> {
   const cwd = process.cwd();
-  const config = findProjectConfig(cwd);
-  if (!config) {
-    error("No .clockwerk config found.");
-    process.exit(1);
-  }
+  const configPath = findProjectConfigPath(cwd);
+  const projectDir = configPath ? resolve(configPath, "..") : null;
 
-  const plugins = config.plugins ?? [];
+  const plugins = manager.list(projectDir);
+  const registryPlugins = plugins.filter((p) => p.kind === "registry");
+  const inlinePlugins = plugins.filter((p) => p.kind === "inline");
+
   if (plugins.length === 0) {
-    info("No plugins configured.");
-    dim("Add one with: clockwerk plugin add <name> --command <cmd>");
-    dim(`\nOr use a template: clockwerk plugin add <name> --template <template>`);
-    dim(`Available templates: ${Object.keys(TEMPLATES).join(", ")}`);
+    info("No plugins installed or configured.");
+    dim(`Install from registry: clockwerk plugin add <name>`);
+    dim(`Add inline plugin:     clockwerk plugin add <name> --command <cmd>`);
+    dim(`\nRegistry plugins are stored in: ${manager.pluginsDir}`);
     return;
   }
 
-  info(`Plugins (${plugins.length}):\n`);
-  for (const p of plugins) {
-    console.log(`  ${p.name}`);
-    console.log(`    command:    ${p.command}`);
-    console.log(`    event_type: ${p.event_type}`);
-    console.log(`    source:     ${p.source}`);
-    if (p.interval) console.log(`    interval:   ${p.interval}s`);
-    console.log();
+  if (registryPlugins.length > 0) {
+    info(`Registry plugins (${registryPlugins.length}):\n`);
+    for (const p of registryPlugins) {
+      const statusBadge = p.active ? pc.green("[active]") : pc.dim("[not active]");
+      console.log(`  ${p.name} ${pc.dim(`v${p.manifest!.version}`)} ${statusBadge}`);
+      console.log(`    ${p.manifest!.description}`);
+      console.log(
+        `    event_type: ${p.manifest!.event_type}  source: ${p.manifest!.source}`,
+      );
+      if (p.manifest!.interval) console.log(`    interval:   ${p.manifest!.interval}s`);
+      console.log();
+    }
+  }
+
+  if (inlinePlugins.length > 0) {
+    info(`Inline plugins (${inlinePlugins.length}):\n`);
+    for (const p of inlinePlugins) {
+      console.log(`  ${p.name}`);
+      console.log(`    command:    ${p.config.command}`);
+      console.log(`    event_type: ${p.config.event_type}`);
+      console.log(`    source:     ${p.config.source}`);
+      if (p.config.interval) console.log(`    interval:   ${p.config.interval}s`);
+      console.log();
+    }
   }
 }
 
@@ -265,14 +296,27 @@ async function test(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const plugin = (config.plugins ?? []).find((p) => p.name === name);
-  if (!plugin) {
+  const pluginEntry = (config.plugins ?? []).find(
+    (p) => (typeof p === "string" ? p : p.name) === name,
+  );
+  if (!pluginEntry) {
     error(`Plugin "${name}" not found.`);
     process.exit(1);
   }
 
   const configPath = findProjectConfigPath(cwd)!;
   const projectDir = resolve(configPath, "..");
+
+  const resolved = manager.resolve(pluginEntry);
+  if (!resolved) {
+    error(
+      `Plugin "${name}" is not installed. Run 'clockwerk plugin add ${name}' to install it.`,
+    );
+    process.exit(1);
+  }
+
+  const plugin = resolved.config;
+  const spawnDir = resolved.cwd || projectDir;
 
   info(`Testing plugin "${name}"...`);
   console.log(`  command:    ${plugin.command}`);
@@ -284,7 +328,7 @@ async function test(args: string[]): Promise<void> {
   const proc = Bun.spawn(["sh", "-c", plugin.command], {
     stdout: "pipe",
     stderr: "pipe",
-    cwd: projectDir,
+    cwd: spawnDir,
   });
 
   let eventCount = 0;
@@ -380,11 +424,132 @@ async function test(args: string[]): Promise<void> {
   cleanup();
 }
 
+async function update(_args: string[]): Promise<void> {
+  const { confirm } = await import("../prompt");
+
+  const spin = spinner("Checking for plugin updates...");
+  let checks: Awaited<ReturnType<typeof manager.checkUpdates>>;
+  try {
+    checks = await manager.checkUpdates();
+    spin.stop();
+  } catch (e) {
+    spin.stop();
+    error(e instanceof Error ? e.message : String(e));
+    process.exit(1);
+  }
+
+  const available = checks.filter((c) => c.hasUpdate && c.latestVersion !== null);
+
+  if (available.length === 0) {
+    info("All plugins are up to date.");
+    return;
+  }
+
+  info(`${available.length} plugin update(s) available:\n`);
+  for (const c of available) {
+    console.log(
+      `  ${c.name}: ${pc.dim(c.installedVersion)} -> ${pc.bold(c.latestVersion!)}`,
+    );
+  }
+  console.log();
+
+  let anyUpdated = false;
+  for (const c of available) {
+    const yes = await confirm(
+      `Update ${c.name} from v${c.installedVersion} to v${c.latestVersion!}?`,
+      false,
+    );
+    if (!yes) {
+      dim(`Skipping ${c.name}.`);
+      continue;
+    }
+
+    const spin2 = spinner(`Updating "${c.name}"...`);
+    const result = await manager.update(c.name);
+    spin2.stop();
+
+    if (!result.ok) {
+      error(`Failed to update "${c.name}": ${result.error}`);
+    } else {
+      success(`Plugin "${c.name}" updated to v${result.data.version}.`);
+      anyUpdated = true;
+    }
+  }
+
+  if (anyUpdated) {
+    dim(
+      "\nRestart the daemon to load the updated plugin files: clockwerk down && clockwerk up",
+    );
+  }
+}
+
+async function create(args: string[]): Promise<void> {
+  const name = args[0];
+  if (!name || name.startsWith("--")) {
+    error("Plugin name is required.");
+    dim("Usage: clockwerk plugin create <name>");
+    process.exit(1);
+  }
+
+  if (name.length < 2 || name.length > 64 || !PLUGIN_NAME_RE.test(name)) {
+    error(`Invalid plugin name "${name}".`);
+    dim("Name must be 2-64 characters, lowercase alphanumeric with hyphens only.");
+    process.exit(1);
+  }
+
+  const cwd = process.cwd();
+  const templateDir = resolve(cwd, "plugins", "_template");
+  const destDir = resolve(cwd, "plugins", name);
+
+  if (!existsSync(templateDir)) {
+    error(`Template not found at plugins/_template/`);
+    dim("Run this command from the clockwerk repository root.");
+    process.exit(1);
+  }
+
+  if (existsSync(destDir)) {
+    error(`Plugin directory "plugins/${name}" already exists.`);
+    process.exit(1);
+  }
+
+  mkdirSync(destDir, { recursive: true });
+
+  for (const file of readdirSync(templateDir)) {
+    copyFileSync(resolve(templateDir, file), resolve(destDir, file));
+  }
+
+  const manifestPath = resolve(destDir, "plugin.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as Record<
+    string,
+    unknown
+  >;
+  manifest.name = name;
+  manifest.source = `plugin:${name}`;
+  manifest.display_name = name
+    .split("-")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+
+  chmodSync(resolve(destDir, "plugin.sh"), 0o755);
+
+  success(`Plugin "${name}" scaffolded at plugins/${name}/`);
+  console.log();
+  console.log(`  Next steps:`);
+  console.log(
+    `  1. Edit plugins/${name}/plugin.json  - fill in description, author, event_type`,
+  );
+  console.log(`  2. Write your logic in plugins/${name}/plugin.sh`);
+  console.log(`  3. Open a pull request to contribute it to the registry`);
+}
+
 const SUBCOMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   add,
   remove,
   list,
+  update,
   test,
+  create,
 };
 
 export default async function plugin(args: string[]): Promise<void> {

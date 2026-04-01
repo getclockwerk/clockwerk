@@ -54,6 +54,4 @@ fi
 echo "Installed clockwerk to ${INSTALL_DIR}/${BINARY_NAME}"
 echo ""
 echo "Get started:"
-echo "  clockwerk login"
-echo "  clockwerk init <project-token>"
 echo "  clockwerk up"

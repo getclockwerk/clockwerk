@@ -1,13 +1,9 @@
 import { readFileSync, existsSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import { Subprocess } from "bun";
-import type {
-  ClockwerkEvent,
-  EventContext,
-  PluginConfig,
-  ProjectConfig,
-} from "@clockwerk/core";
+import type { ClockwerkEvent, PluginConfig, ProjectConfig } from "@clockwerk/core";
 import { createLogger } from "./logger";
+import { parseLine, type PluginManager } from "../plugin-manager";
 
 interface PluginCallbacks {
   onEvent: (event: ClockwerkEvent) => void;
@@ -37,6 +33,7 @@ export class PluginProcess {
     private projectToken: string,
     private projectDir: string,
     private callbacks: PluginCallbacks,
+    private spawnDir?: string,
   ) {
     this.log = createLogger(`plugin:${config.name}`);
   }
@@ -86,7 +83,7 @@ export class PluginProcess {
       this.proc = Bun.spawn(["sh", "-c", this.config.command], {
         stdout: "pipe",
         stderr: "pipe",
-        cwd: this.projectDir,
+        cwd: this.spawnDir ?? this.projectDir,
       });
       this.startedAt = Date.now();
 
@@ -198,36 +195,14 @@ export class PluginProcess {
   }
 }
 
-/** Parse a stdout line into event context. JSON lines get field extraction, plain text becomes description. */
-export function parseLine(line: string): EventContext {
-  try {
-    const parsed = JSON.parse(line);
-    if (typeof parsed !== "object" || parsed === null) {
-      return { description: line.slice(0, 200) };
-    }
-    const context: EventContext = {};
-    if (typeof parsed.description === "string")
-      context.description = parsed.description.slice(0, 200);
-    if (typeof parsed.file_path === "string") context.file_path = parsed.file_path;
-    if (typeof parsed.branch === "string") context.branch = parsed.branch;
-    if (typeof parsed.issue_id === "string") context.issue_id = parsed.issue_id;
-    if (typeof parsed.topic === "string") context.topic = parsed.topic;
-    if (typeof parsed.tool_name === "string") context.tool_name = parsed.tool_name;
-    // Default description to the raw line if not provided
-    if (!context.description) context.description = line.slice(0, 200);
-    return context;
-  } catch {
-    return { description: line.slice(0, 200) };
-  }
-}
-
-export class PluginManager {
+export class PluginSupervisor {
   private plugins: PluginProcess[] = [];
   private configWatchers: FSWatcher[] = [];
 
   constructor(
     private registry: Array<{ project_token: string; directory: string }>,
     private callbacks: PluginCallbacks,
+    private pluginManager: PluginManager,
   ) {}
 
   start(): void {
@@ -270,13 +245,32 @@ export class PluginManager {
     if (!config.plugins || config.plugins.length === 0) return [];
     if (!existsSync(entry.directory)) return [];
 
+    const log = createLogger("plugins");
     const plugins: PluginProcess[] = [];
-    for (const pluginConfig of config.plugins) {
+    for (const pluginEntry of config.plugins) {
+      let pluginConfig: PluginConfig;
+      let spawnDir: string | undefined;
+
+      if (typeof pluginEntry === "string") {
+        const resolved = this.pluginManager.resolve(pluginEntry);
+        if (!resolved) {
+          log.error(
+            `Plugin "${pluginEntry}" is not installed. Run 'clockwerk plugin add ${pluginEntry}' to install it.`,
+          );
+          continue;
+        }
+        pluginConfig = resolved.config;
+        spawnDir = resolved.cwd || undefined;
+      } else {
+        pluginConfig = pluginEntry;
+      }
+
       const plugin = new PluginProcess(
         pluginConfig,
         entry.project_token,
         entry.directory,
         this.callbacks,
+        spawnDir,
       );
       plugin.start();
       plugins.push(plugin);
@@ -331,8 +325,9 @@ export class PluginManager {
 export function startPluginsFromRegistry(
   registry: Array<{ project_token: string; directory: string }>,
   callbacks: PluginCallbacks,
-): PluginManager {
-  const manager = new PluginManager(registry, callbacks);
-  manager.start();
-  return manager;
+  pluginManager: PluginManager,
+): PluginSupervisor {
+  const supervisor = new PluginSupervisor(registry, callbacks, pluginManager);
+  supervisor.start();
+  return supervisor;
 }

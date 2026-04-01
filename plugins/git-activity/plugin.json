@@ -1,0 +1,12 @@
+{
+  "name": "git-activity",
+  "version": "1.0.0",
+  "display_name": "Git Activity",
+  "description": "Emits an event each time a git ref changes (commits, branch switches, merges).",
+  "author": "Clockwerk",
+  "event_type": "git_commit",
+  "source": "plugin:git-activity",
+  "command": "./plugin.sh",
+  "interval": 5,
+  "tags": ["git", "vcs"]
+}
